@@ -9,7 +9,7 @@ import { ChatInput } from './components/chat-input';
 import { TodoListView } from './components/todo-list-view';
 import { TerminalView } from './components/terminal-view';
 import { Banner } from './components/banner';
-import { TodoItem } from '@/tools/todo/types';
+import type { TodoItem } from '@/middlewares/todo-list';
 import { debugLog } from '@/utils/debug';
 
 type CodingAgent = Awaited<ReturnType<typeof createCodingAgent>>;

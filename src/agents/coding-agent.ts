@@ -5,7 +5,6 @@ import { ChatOpenAI } from '@langchain/openai';
 import { project } from '@/project';
 import { applyPromptTemplate } from '@/prompts/template';
 import { bashTool, grepTool, lsTool, textEditorTool, todoWriteTool, treeTool } from '@/tools';
-import { CodingAgentState } from './state';
 import { MemorySaver } from '@langchain/langgraph';
 import { loadMcpTools } from '@/mcp';
 import { todoListMiddleware } from '@/middlewares/todo-list';

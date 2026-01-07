@@ -2,7 +2,26 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { ToolMessage } from '@langchain/core/messages';
 import { Command } from '@langchain/langgraph';
-import { TodoStatus, TodoPriority } from './types';
+
+export enum TodoStatus {
+    pending = 'pending',
+    in_progress = 'in_progress',
+    completed = 'completed',
+    cancelled = 'cancelled',
+}
+
+export enum TodoPriority {
+    low = 'low',
+    medium = 'medium',
+    high = 'high',
+}
+
+export interface TodoItem {
+    id: number;
+    title: string;
+    priority: TodoPriority;
+    status: TodoStatus;
+}
 
 export const todoWriteTool = tool(
     async ({ todos }, config) => {

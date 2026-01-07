@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import { TodoItem, TodoStatus } from '@/tools/todo/types';
+import { TodoItem, TodoStatus } from '@/middlewares/todo-list';
 
 interface TodoListViewProps {
     todos: TodoItem[];

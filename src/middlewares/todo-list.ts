@@ -33,9 +33,28 @@ It is critical that you mark todos as completed as soon as you are done with a s
 For simple objectives that only require a few steps, it is better to just complete the objective directly and NOT use this tool.
 Writing todos takes time and tokens, use it when it is helpful for managing complex many-step problems! But not for simple few-step requests.
 
-## Important To-Do List Usage Notes to Remember
+### Important To-Do List Usage Notes to Remember
 - The \`todo_write\` tool should never be called multiple times in parallel.
 - Don't be afraid to revise the To-Do list as you go. New information may reveal new tasks that need to be done, or old tasks that are irrelevant.
+
+### When to Use
+
+Use the \`todo_write\` tool in these scenarios:
+
+1. Complex multi-step tasks - When a task requires 3 or more distinct steps or actions
+2. Non-trivial and complex tasks - Tasks that require careful planning or multiple operations
+3. User explicitly requests todo list - When the user directly asks you to use the todo list
+4. User provides multiple tasks - When users provide a list of things to be done (numbered or comma-separated)
+5. The plan may need future revisions or updates based on results from the first few steps. Keeping track of this in a list is helpful.
+
+### When to Not Use
+
+It is important to skip using the \`todo_write\` tool when:
+
+1. There is only a single, straightforward task
+2. The task is trivial and tracking it provides no benefit
+3. The task can be completed in less than 3 trivial steps
+4. The task is purely conversational or informational
 `;
 
 export function todoListMiddleware(options: { systemPrompt?: string } = {}) {
