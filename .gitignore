@@ -36,3 +36,6 @@ debug.log
 
 # typescript
 *.tsbuildinfo
+
+# LangGraph API
+.langgraph_api

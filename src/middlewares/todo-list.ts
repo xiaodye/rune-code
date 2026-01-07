@@ -1,5 +1,26 @@
-import { createMiddleware } from 'langchain';
-import { TodoItem } from '@/tools/todo/types';
+import { createMiddleware, tool, ToolMessage } from 'langchain';
+import { Command } from '@langchain/langgraph';
+import { z } from 'zod';
+
+export enum TodoStatus {
+    pending = 'pending',
+    in_progress = 'in_progress',
+    completed = 'completed',
+    cancelled = 'cancelled',
+}
+
+export enum TodoPriority {
+    low = 'low',
+    medium = 'medium',
+    high = 'high',
+}
+
+export interface TodoItem {
+    id: number;
+    title: string;
+    priority: TodoPriority;
+    status: TodoStatus;
+}
 
 export const TODO_LIST_SYSTEM_PROMPT = `
 ## \`todo_write\`
@@ -18,22 +39,71 @@ Writing todos takes time and tokens, use it when it is helpful for managing comp
 `;
 
 export function todoListMiddleware(options: { systemPrompt?: string } = {}) {
+    const todoWriteTool = tool(
+        async ({ todos }, config) => {
+            const unfinishedTodos = todos.filter(
+                (todo) =>
+                    todo.status !== TodoStatus.completed && todo.status !== TodoStatus.cancelled,
+            );
+
+            let message = `Successfully updated the TODO list with ${todos.length} items.`;
+            if (unfinishedTodos.length > 0) {
+                message += ` ${unfinishedTodos.length} todo${unfinishedTodos.length === 1 ? ' is' : 's are'} not completed.`;
+            } else {
+                message += ' All todos are completed.';
+            }
+
+            return new Command({
+                update: {
+                    todos,
+                    messages: [
+                        new ToolMessage({
+                            content: message,
+                            tool_call_id: config.toolCall?.id || '',
+                            name: 'todo_write',
+                        }),
+                    ],
+                },
+            });
+        },
+        {
+            name: 'todo_write',
+            description: 'Update the entire TODO list with the latest items.',
+            schema: z.object({
+                todos: z
+                    .array(
+                        z.object({
+                            id: z.number().min(0),
+                            title: z.string().min(1),
+                            priority: z.enum(TodoPriority).default(TodoPriority.medium),
+                            status: z.enum(TodoStatus).default(TodoStatus.pending),
+                        }),
+                    )
+                    .describe('A list of TodoItem objects.'),
+            }),
+        },
+    );
+
     return createMiddleware({
         name: 'todoListMiddleware',
-        // We don't add the tool here because it's already in the agent's tool list in coding-agent.ts
-        // If we added it here, it might be duplicated.
+        tools: [todoWriteTool],
+        stateSchema: z.object({
+            todos: z
+                .array(
+                    z.object({
+                        id: z.number().min(0),
+                        title: z.string().min(1),
+                        priority: z.enum(TodoPriority).default(TodoPriority.medium),
+                        status: z.enum(TodoStatus).default(TodoStatus.pending),
+                    }),
+                )
+                .default([]),
+        }),
         wrapModelCall: (request, handler) => {
-            let systemPrompt = request.systemPrompt;
+            const todos = request.state.todos;
+            let todoSP = '';
 
-            // Append the instructions
-            // Use user provided prompt or default
-            systemPrompt += `\n\n${options.systemPrompt ?? TODO_LIST_SYSTEM_PROMPT}`;
-
-            // Inject current todos if they exist in the state
-            // The state is available in request.state
-            // We cast to any because we know the structure but TS might not infer it fully here without generics
-            const todos = (request.state as any).todos as TodoItem[] | undefined;
-            if (todos && todos.length > 0) {
+            if (todos.length > 0) {
                 const todoListString = todos
                     .map(
                         (t) =>
@@ -41,12 +111,14 @@ export function todoListMiddleware(options: { systemPrompt?: string } = {}) {
                     )
                     .join('\n');
 
-                systemPrompt += `\n\nCurrent To-Do List:\n${todoListString}`;
+                todoSP += `\n\nCurrent To-Do List:\n${todoListString}`;
             }
 
             return handler({
                 ...request,
-                systemPrompt,
+                systemMessage: request.systemMessage
+                    .concat(`\n\n${options?.systemPrompt ?? TODO_LIST_SYSTEM_PROMPT}`)
+                    .concat(todoSP),
             });
         },
     });
