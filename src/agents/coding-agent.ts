@@ -1,4 +1,4 @@
-import { createAgent, summarizationMiddleware } from 'langchain';
+import { createAgent, summarizationMiddleware, humanInTheLoopMiddleware } from 'langchain';
 import { StructuredTool } from '@langchain/core/tools';
 import { initChatModel } from '@/models/chat-model';
 import { ChatOpenAI } from '@langchain/openai';
@@ -30,7 +30,7 @@ export async function createCodingAgent() {
         grepTool,
         lsTool,
         textEditorTool,
-        todoWriteTool,
+        // todoWriteTool,
         treeTool,
         ...mcpTools,
     ];
@@ -52,6 +52,14 @@ export async function createCodingAgent() {
             //     trigger: [{ tokens: 3000, messages: 6 }],
             //     keep: { messages: 20 },
             // }),
+            humanInTheLoopMiddleware({
+                interruptOn: {
+                    bash: {
+                        allowedDecisions: ['approve', 'reject'],
+                        description: 'Sensitive command execution',
+                    },
+                },
+            }),
         ],
         checkpointer,
         // stateSchema: CodingAgentState,
@@ -59,3 +67,6 @@ export async function createCodingAgent() {
 
     return codingAgent;
 }
+
+// 调试使用
+export const agent = createCodingAgent();

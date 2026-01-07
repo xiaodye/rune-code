@@ -1,10 +1,10 @@
 import { render } from 'ink';
 import { App } from './cli/app';
-import dotenv from 'dotenv';
 import { project } from './project';
 import process from 'node:process';
+// import dotenv from 'dotenv';
 
-dotenv.config();
+// dotenv.config();
 
 // Simple CLI entry point
 const main = () => {

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Box, Static, Text, useInput } from 'ink';
+import SelectInput from 'ink-select-input';
 import { AIMessage, BaseMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
+import { Command } from '@langchain/langgraph';
 import { createCodingAgent } from '@/agents/coding-agent';
 import { ChatView } from './components/chat-view';
 import { ChatInput } from './components/chat-input';
@@ -17,6 +19,10 @@ export const App = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [todos, setTodos] = useState<TodoItem[]>([]);
     const [terminalOutput, setTerminalOutput] = useState('');
+    const [interruptInfo, setInterruptInfo] = useState<{
+        description: string;
+        tool: string;
+    } | null>(null);
 
     // Tab state: 0 = Chat, 1 = Terminal, 2 = Todo
     const [activeTab, setActiveTab] = useState(0);
@@ -43,24 +49,29 @@ export const App = () => {
         // }
     });
 
-    const handleSubmit = async (value: string) => {
-        if (!value.trim() || !agent) return;
-
-        const userMsg = new HumanMessage(value);
-        setMessages((prev) => [...prev, userMsg]);
+    const runAgent = async (input: any) => {
+        if (!agent) return;
         setIsGenerating(true);
 
         try {
-            const stream = await agent.stream(
-                { messages: [...messages, userMsg] },
-                { recursionLimit: 50, streamMode: 'updates', configurable: { thread_id: '1' } },
-            );
+            const stream = await agent.stream(input, {
+                recursionLimit: 50,
+                streamMode: 'updates',
+                configurable: { thread_id: '1' },
+            });
 
             for await (const chunk of stream) {
-                for (const nodeUpdate of Object.values(chunk) as any[]) {
+                for (const [nodeName, nodeUpdate] of Object.entries(chunk)) {
                     const newMsgs = nodeUpdate.messages;
 
-                    if (Array.isArray(newMsgs)) {
+                    debugLog(`nodeName: ${nodeName}`);
+                    debugLog(`messages: ${JSON.stringify(newMsgs, null, 2)}`);
+                    // debugLog(`interrupt: ${nodeUpdate.__interrupt__}`);
+
+                    if (
+                        Array.isArray(newMsgs) &&
+                        ['human', 'model_request', 'tools'].includes(nodeName)
+                    ) {
                         setMessages((prev) => [...prev, ...newMsgs]);
 
                         for (const msg of newMsgs) {
@@ -85,15 +96,83 @@ export const App = () => {
                     }
                 }
             }
+
+            // Check for interrupt
+            const state = (await agent.getState({ configurable: { thread_id: '1' } })) as any;
+            if (
+                state.tasks &&
+                state.tasks.length > 0 &&
+                state.tasks[0].interrupts &&
+                state.tasks[0].interrupts.length > 0
+            ) {
+                const interruptValue = state.tasks[0].interrupts[0].value;
+
+                // Inspect the interrupt value (HITLRequest)
+                // We check if it's a bash command and if it's dangerous
+                let isDangerous = false;
+
+                if (interruptValue && interruptValue.actionRequests) {
+                    for (const action of interruptValue.actionRequests) {
+                        if (action.name === 'bash') {
+                            const command = action.args.command;
+                            if (command && /(^|[;&|\s])(rm|rmdir)(\s|$)/.test(command)) {
+                                isDangerous = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (isDangerous) {
+                    setInterruptInfo({
+                        description: 'Tool execution pending approval (Dangerous Command)',
+                        tool: 'bash',
+                    });
+                } else {
+                    // Auto-approve safe commands
+                    await autoResume();
+                }
+            }
         } catch (error) {
             setMessages((prev) => [...prev, new HumanMessage(`Error: ${error}`)]);
         } finally {
             setIsGenerating(false);
-            setMessages((prev) => {
-                debugLog('msgs', prev);
-                return prev;
-            });
         }
+    };
+
+    const handleSubmit = async (value: string) => {
+        if (!value.trim() || !agent) return;
+
+        const userMsg = new HumanMessage(value);
+        setMessages((prev) => [...prev, userMsg]);
+
+        await runAgent({ messages: [...messages, userMsg] });
+    };
+
+    const handleResume = async (decision: string) => {
+        setInterruptInfo(null);
+        await runAgent(
+            new Command({
+                resume: {
+                    decisions: [
+                        {
+                            type: decision,
+                        },
+                    ],
+                },
+            }),
+        );
+    };
+
+    // Helper to auto-resume
+    const autoResume = async () => {
+        await runAgent(
+            new Command({
+                resume: {
+                    decisions: [{ type: 'approve' }],
+                },
+            }),
+        );
     };
 
     return (
@@ -117,7 +196,26 @@ export const App = () => {
             </Box> */}
             <Box flexDirection="column" flexGrow={1}>
                 <ChatView messages={messages} todos={todos} isGenerating={isGenerating} />
-                <ChatInput onSubmit={handleSubmit} />
+                {interruptInfo ? (
+                    <Box
+                        flexDirection="column"
+                        borderColor="yellow"
+                        borderStyle="round"
+                        padding={1}
+                    >
+                        <Text color="yellow">⚠️ Approval Required</Text>
+                        <Text>A tool execution requires your confirmation.</Text>
+                        <SelectInput
+                            items={[
+                                { label: 'Approve (Yes)', value: 'approve' },
+                                { label: 'Reject (No)', value: 'reject' },
+                            ]}
+                            onSelect={(item) => handleResume(item.value)}
+                        />
+                    </Box>
+                ) : (
+                    <ChatInput onSubmit={handleSubmit} />
+                )}
             </Box>
 
             {/* {activeTab === 1 && (
