@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { BaseMessage, HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import Spinner from 'ink-spinner';
 import { TodoListView } from './todo-list-view';
-import { TodoItem } from '@/tools/todo/types';
+import { TodoItem } from '@/middlewares/todo-list';
 
 interface ChatViewProps {
     messages: BaseMessage[];
