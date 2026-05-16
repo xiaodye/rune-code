@@ -1,6 +1,6 @@
-# deer-code-node
+# rune-code
 
-一个基于 Node.js、LangChain 和 Ink 构建的强大终端 AI 编程助手。`deer-code-node` 帮助您通过交互式聊天界面编写代码、执行终端命令并管理开发任务。
+一个基于 Node.js、LangChain 和 Ink 构建的强大终端 AI 编程助手。`rune-code` 帮助您通过交互式聊天界面编写代码、执行终端命令并管理开发任务。
 
 ## ✨ 功能特性
 

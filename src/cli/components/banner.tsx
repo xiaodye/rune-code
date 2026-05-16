@@ -9,7 +9,7 @@ export const Banner = () => {
     useEffect(() => {
         // 'Cyberlarge' or 'Big' might be good. 'Standard' is safe.
         // Let's try 'Big' for a larger effect like the image.
-        figlet.text('DEER CODE', { font: 'Big' }, (err, data) => {
+        figlet.text('RUNE CODE', { font: 'Big' }, (err, data) => {
             if (err) {
                 return;
             }
