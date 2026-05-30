@@ -1,9 +1,8 @@
 import { createAgent, summarizationMiddleware, humanInTheLoopMiddleware } from 'langchain';
-import { StructuredTool } from '@langchain/core/tools';
 import { ChatOpenAI } from '@langchain/openai';
 import { project } from '@/project';
 import { applyPromptTemplate } from '@/prompts/template';
-import { bashTool, grepTool, lsTool, textEditorTool, todoWriteTool, treeTool } from '@/tools';
+import { bashTool, grepTool, lsTool, textEditorTool, treeTool } from '@/tools';
 import { MemorySaver } from '@langchain/langgraph';
 import { loadMcpTools } from '@/mcp';
 import { todoListMiddleware } from '@/middlewares/todo-list';
@@ -22,15 +21,7 @@ export async function createCodingAgent() {
 
     const mcpTools = await loadMcpTools();
 
-    const tools = [
-        bashTool,
-        grepTool,
-        lsTool,
-        textEditorTool,
-        // todoWriteTool,
-        treeTool,
-        ...mcpTools,
-    ];
+    const tools = [bashTool, grepTool, lsTool, textEditorTool, treeTool, ...mcpTools];
 
     const systemPrompt = applyPromptTemplate('coding_agent', {
         PROJECT_ROOT: project.rootDir,
