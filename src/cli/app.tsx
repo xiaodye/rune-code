@@ -179,10 +179,10 @@ export const App = () => {
             <Box flexDirection="column">
                 <Banner />
                 <Box>
-                    <Text>Welcome to Deer Code! Type your requests below.</Text>
+                    <Text>Welcome to Rune Code! Type your requests below.</Text>
                 </Box>
                 <Box>
-                    <Text>1. Type your request to start a conversation with Deer Code.</Text>
+                    <Text>1. Type your request to start a conversation with Rune Code.</Text>
                 </Box>
                 <Box>
                     <Text>2. Use the terminal view to execute commands.</Text>

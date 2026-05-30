@@ -1,4 +1,4 @@
-# Deer Code Node 工具实现原理解析
+# Rune Code Node 工具实现原理解析
 
 本文档详细解析了 `src/tools` 目录下各个 Agent 工具的实现原理。
 
