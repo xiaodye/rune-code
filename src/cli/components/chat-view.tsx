@@ -11,83 +11,146 @@ interface ChatViewProps {
     isGenerating: boolean;
 }
 
+const MAX_INLINE_LENGTH = 96;
+
+function compact(value: unknown, maxLength = MAX_INLINE_LENGTH): string {
+    if (value === undefined || value === null || value === '') {
+        return '';
+    }
+
+    const text = String(value).replace(/\s+/g, ' ').trim();
+    if (text.length <= maxLength) {
+        return text;
+    }
+
+    return `${text.slice(0, maxLength - 1)}...`;
+}
+
+function messageText(content: unknown): string {
+    if (typeof content === 'string') {
+        return content;
+    }
+
+    if (Array.isArray(content)) {
+        return content
+            .map((part) => {
+                if (typeof part === 'string') {
+                    return part;
+                }
+
+                if (part && typeof part === 'object' && 'text' in part) {
+                    return String(part.text);
+                }
+
+                return '';
+            })
+            .filter(Boolean)
+            .join('\n');
+    }
+
+    return content ? String(content) : '';
+}
+
+function toolLabel(name: string): string {
+    const labels: Record<string, string> = {
+        bash: 'Running command',
+        grep: 'Searching code',
+        ls: 'Reading directory',
+        tree: 'Inspecting project tree',
+        text_editor: 'Editing file',
+        todo_write: 'Updating plan',
+    };
+
+    return labels[name] ?? `Using ${name}`;
+}
+
+function toolDetail(name: string, args: Record<string, any>): string {
+    if (name === 'bash') {
+        return compact(args.command);
+    }
+
+    if (name === 'grep') {
+        return compact([args.pattern, args.path].filter(Boolean).join(' in '));
+    }
+
+    if (name === 'ls' || name === 'tree') {
+        return compact(args.path);
+    }
+
+    if (name === 'text_editor') {
+        return compact([args.command, args.path].filter(Boolean).join(' '));
+    }
+
+    return '';
+}
+
+function isErrorToolMessage(msg: ToolMessage): boolean {
+    return typeof msg.content === 'string' && /^`{0,3}\s*error[:\s]/i.test(msg.content.trim());
+}
+
 export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], isGenerating }) => {
     return (
-        <Box
-            flexDirection="column"
-            // borderStyle="single"
-            // borderColor="green"
-            padding={1}
-            flexGrow={1}
-        >
+        <Box flexDirection="column" paddingX={1} flexGrow={1}>
             <Box flexDirection="column" flexGrow={1}>
                 {messages.map((msg, index) => {
                     if (HumanMessage.isInstance(msg)) {
+                        const content = messageText(msg.content);
+
                         return (
-                            <Box key={msg.id} flexDirection="column" marginTop={1}>
-                                <Text color="blue" bold>
-                                    User:
+                            <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
+                                <Text color="cyan" bold>
+                                    You
                                 </Text>
-                                <Text>{msg.content as string}</Text>
+                                <Text wrap="wrap">{content}</Text>
                             </Box>
                         );
                     } else if (AIMessage.isInstance(msg)) {
-                        // Only show text content, skip tool calls for brevity in chat view
-                        // (Tool calls usually have empty content or we show them differently)
-                        const content = msg.content as string;
+                        const content = messageText(msg.content);
 
                         if (content) {
                             return (
-                                <Box key={msg.id} flexDirection="column" marginTop={1}>
+                                <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
                                     <Text color="green" bold>
-                                        AI:
+                                        Rune
                                     </Text>
-                                    <Text>{content}</Text>
+                                    <Text wrap="wrap">{content}</Text>
                                 </Box>
                             );
                         }
 
-                        return (
-                            <Box key={msg.id}>
-                                {msg.tool_calls?.length && (
-                                    <Box
-                                        key={msg.tool_calls[0].id}
-                                        flexDirection="column"
-                                        marginTop={1}
-                                    >
-                                        <Text color="blue" dimColor>
-                                            使用了工具 {msg.tool_calls[0].name}
-                                        </Text>
-                                        {msg.tool_calls[0].name !== 'todo_write' && (
-                                            <Box borderStyle="classic" borderColor="blue">
-                                                <Text color="gray">
-                                                    {JSON.stringify(
-                                                        msg.tool_calls[0].args,
-                                                        null,
-                                                        2,
-                                                    )}
-                                                </Text>
-                                            </Box>
-                                        )}
-                                    </Box>
-                                )}
-                            </Box>
+                        const visibleToolCalls =
+                            msg.tool_calls?.filter((toolCall) => toolCall.name !== 'todo_write') ??
+                            [];
+
+                        if (visibleToolCalls.length === 0) {
+                            return null;
+                        }
+
+	                        return (
+	                            <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
+	                                {visibleToolCalls.map((toolCall) => {
+	                                    const detail = toolDetail(toolCall.name, toolCall.args ?? {});
+	                                    return (
+	                                        <Text key={toolCall.id ?? toolCall.name} color="gray">
+	                                            {toolLabel(toolCall.name)}
+	                                            {detail ? `: ${detail}` : ''}
+	                                        </Text>
+	                                    );
+	                                })}
+	                            </Box>
                         );
                     } else if (ToolMessage.isInstance(msg)) {
-                        const content = msg.content as string;
+                        if (!isErrorToolMessage(msg)) {
+                            return null;
+                        }
+
                         return (
-                            <>
-                                <Box key={msg.id} flexDirection="column" marginTop={1}>
-                                    <Text color="gray" dimColor>
-                                        Tool Output ({msg.name}):
-                                    </Text>
-                                    <Box borderStyle="round" borderColor="yellow">
-                                        <Text color="gray">
-                                            {content.substring(0, 150) + '...'}
-                                        </Text>
-                                    </Box>
-                                </Box>
-                            </>
+                            <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
+                                <Text color="red">
+                                    {msg.name ? `${msg.name} failed` : 'Tool failed'}:{' '}
+                                    {compact(msg.content)}
+                                </Text>
+                            </Box>
                         );
                     }
                     return null;
@@ -96,8 +159,8 @@ export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], i
                 {todos.length !== 0 && <TodoListView todos={todos} />}
                 {isGenerating && (
                     <Box flexDirection="column" marginTop={1}>
-                        <Text>
-                            <Spinner type="dots" /> Thinking...
+                        <Text color="gray">
+                            <Spinner type="dots" /> Working
                         </Text>
                     </Box>
                 )}
