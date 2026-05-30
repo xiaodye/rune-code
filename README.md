@@ -18,6 +18,14 @@
 - **Node.js**：22.x 或更高版本
 - **pnpm**：10.x 或更高版本
 
+<img width="1626" height="630" alt="image" src="https://github.com/user-attachments/assets/6b420d48-6316-44ec-b292-5529b5e7ef48" />
+
+<img width="1634" height="1202" alt="image" src="https://github.com/user-attachments/assets/717a1cfa-b8f0-4067-9812-ba6e6ee593c0" />
+
+<img width="1636" height="1052" alt="image" src="https://github.com/user-attachments/assets/1763e3e3-c366-49bf-8625-3000143b3a15" />
+
+
+
 ## 🚀 安装指南
 
 1. 克隆仓库：
