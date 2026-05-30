@@ -6,7 +6,6 @@ import { Command } from '@langchain/langgraph';
 import { createCodingAgent } from '@/agents/coding-agent';
 import { ChatView } from './components/chat-view';
 import { ChatInput } from './components/chat-input';
-import { TodoListView } from './components/todo-list-view';
 import { Banner } from './components/banner';
 import type { TodoItem } from '@/middlewares/todo-list';
 import { debugLog } from '@/utils/debug';
