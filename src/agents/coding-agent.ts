@@ -1,6 +1,5 @@
 import { createAgent, summarizationMiddleware, humanInTheLoopMiddleware } from 'langchain';
 import { StructuredTool } from '@langchain/core/tools';
-import { initChatModel } from '@/models/chat-model';
 import { ChatOpenAI } from '@langchain/openai';
 import { project } from '@/project';
 import { applyPromptTemplate } from '@/prompts/template';
@@ -10,7 +9,6 @@ import { loadMcpTools } from '@/mcp';
 import { todoListMiddleware } from '@/middlewares/todo-list';
 
 export async function createCodingAgent() {
-    // const model = initChatModel();
     const model = new ChatOpenAI({
         modelName: process.env.LLM_MODEL,
         apiKey: process.env.LLM_API_KEY,
