@@ -1,8 +1,7 @@
 import { lsTool } from './fs/ls';
 import { grepTool } from './fs/grep';
 import { treeTool } from './fs/tree';
-import { textEditorTool } from './edit/editor';
+import { textEditorTool } from './text-editor/editor';
 import { bashTool } from './terminal/tool';
-import { todoWriteTool } from './todo/tool';
 
-export { lsTool, grepTool, treeTool, textEditorTool, bashTool, todoWriteTool };
+export { lsTool, grepTool, treeTool, textEditorTool, bashTool };
