@@ -8,7 +8,6 @@ import { ChatView } from './components/chat-view';
 import { ChatInput } from './components/chat-input';
 import { Banner } from './components/banner';
 import type { TodoItem } from '@/middlewares/todo-list';
-import { debugLog } from '@/utils/debug';
 
 type CodingAgent = Awaited<ReturnType<typeof createCodingAgent>>;
 
@@ -47,10 +46,6 @@ export const App = () => {
             for await (const chunk of stream) {
                 for (const [nodeName, nodeUpdate] of Object.entries(chunk)) {
                     const newMsgs = nodeUpdate.messages;
-
-                    // debugLog(`nodeName: ${nodeName}`);
-                    // debugLog(`messages: ${JSON.stringify(newMsgs, null, 2)}`);
-                    // debugLog(`interrupt: ${nodeUpdate.__interrupt__}`);
 
                     if (Array.isArray(newMsgs) && ['model_request', 'tools'].includes(nodeName)) {
                         setMessages((prev) => [...prev, ...newMsgs]);

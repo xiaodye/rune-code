@@ -4,6 +4,7 @@ import { BaseMessage, HumanMessage, AIMessage, ToolMessage } from '@langchain/co
 import Spinner from 'ink-spinner';
 import { TodoListView } from './todo-list-view';
 import { TodoItem } from '@/middlewares/todo-list';
+import { project } from '@/project';
 
 interface ChatViewProps {
     messages: BaseMessage[];
@@ -12,6 +13,7 @@ interface ChatViewProps {
 }
 
 const MAX_INLINE_LENGTH = 96;
+const MAX_TOOL_DETAIL_LENGTH = 56;
 
 function compact(value: unknown, maxLength = MAX_INLINE_LENGTH): string {
     if (value === undefined || value === null || value === '') {
@@ -53,32 +55,66 @@ function messageText(content: unknown): string {
 
 function toolLabel(name: string): string {
     const labels: Record<string, string> = {
-        bash: 'Running command',
-        grep: 'Searching code',
-        ls: 'Reading directory',
-        tree: 'Inspecting project tree',
-        text_editor: 'Editing file',
-        todo_write: 'Updating plan',
+        bash: '执行命令',
+        grep: '搜索代码',
+        ls: '读取目录',
+        tree: '查看项目树',
+        text_editor: '编辑器',
+        todo_write: '更新 TodoList',
     };
 
-    return labels[name] ?? `Using ${name}`;
+    return labels[name] ?? '调用工具';
+}
+
+function toolIcon(name: string): string {
+    const icons: Record<string, string> = {
+        bash: '$',
+        grep: '?',
+        ls: '/',
+        tree: '#',
+        text_editor: '+',
+        todo_write: '*',
+    };
+
+    return icons[name] ?? '>';
+}
+
+function displayPath(value: unknown): string {
+    const text = compact(value, 240);
+    if (!text) {
+        return '';
+    }
+
+    if (text === project.rootDir) {
+        return '.';
+    }
+
+    if (text.startsWith(`${project.rootDir}/`)) {
+        return text.slice(project.rootDir.length + 1);
+    }
+
+    return text.replace(/^\/Users\/[^/]+\//, '~/');
 }
 
 function toolDetail(name: string, args: Record<string, any>): string {
     if (name === 'bash') {
-        return compact(args.command);
+        return compact(args.command, MAX_TOOL_DETAIL_LENGTH);
     }
 
     if (name === 'grep') {
-        return compact([args.pattern, args.path].filter(Boolean).join(' in '));
+        const target = args.path ? `in ${displayPath(args.path)}` : '';
+        return compact([args.pattern, target].filter(Boolean).join(' '), MAX_TOOL_DETAIL_LENGTH);
     }
 
     if (name === 'ls' || name === 'tree') {
-        return compact(args.path);
+        return compact(displayPath(args.path), MAX_TOOL_DETAIL_LENGTH);
     }
 
     if (name === 'text_editor') {
-        return compact([args.command, args.path].filter(Boolean).join(' '));
+        return compact(
+            [args.command, displayPath(args.path)].filter(Boolean).join(' '),
+            MAX_TOOL_DETAIL_LENGTH,
+        );
     }
 
     return '';
@@ -126,18 +162,31 @@ export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], i
                             return null;
                         }
 
-	                        return (
-	                            <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
-	                                {visibleToolCalls.map((toolCall) => {
+                        return (
+                            <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
+                                {visibleToolCalls.map((toolCall) => {
 	                                    const detail = toolDetail(toolCall.name, toolCall.args ?? {});
 	                                    return (
-	                                        <Text key={toolCall.id ?? toolCall.name} color="gray">
-	                                            {toolLabel(toolCall.name)}
-	                                            {detail ? `: ${detail}` : ''}
-	                                        </Text>
-	                                    );
-	                                })}
-	                            </Box>
+	                                        <Box key={toolCall.id ?? toolCall.name} flexDirection="row">
+	                                            <Box width={3}>
+	                                                <Text color="cyan" bold>
+	                                                    {toolIcon(toolCall.name)}
+	                                                </Text>
+	                                            </Box>
+	                                            <Text color="gray">{toolLabel(toolCall.name)} </Text>
+                                            <Text color="magenta" bold>
+                                                [{toolCall.name}]
+                                            </Text>
+	                                            {detail ? (
+	                                                <Text color="gray" wrap="truncate-end">
+	                                                    {' '}
+	                                                    {detail}
+	                                                </Text>
+	                                            ) : null}
+	                                        </Box>
+                                    );
+                                })}
+                            </Box>
                         );
                     } else if (ToolMessage.isInstance(msg)) {
                         if (!isErrorToolMessage(msg)) {
