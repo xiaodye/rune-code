@@ -1,4 +1,4 @@
-# Rune Code Node 上下文管理实现
+# Rune Code 上下文管理实现
 
 本文档详细解析 Agent 对话历史的上下文管理策略 —— 如何防止 context window 溢出、维持前缀缓存命中率、在长对话中保持响应质量。
 
@@ -52,12 +52,12 @@ Agent 的对话历史是无限增长的：
 触发 = (≥15% 窗口 AND ≥10 条消息) OR (≥25% 窗口 AND ≥6 条消息)
 ```
 
-| 模型 | Context | 触发 A (15% + 10msgs) | 触发 B (25% + 6msgs) |
-|------|---------|----------------------|----------------------|
-| GPT-4o | 128K | ~19K tokens | ~32K tokens |
-| DeepSeek V3 | 128K | ~19K tokens | ~32K tokens |
-| Claude Sonnet | 200K | ~30K tokens | ~50K tokens |
-| Doubao Lite | ~32K | ~4.8K tokens | ~8K tokens |
+| 模型          | Context | 触发 A (15% + 10msgs) | 触发 B (25% + 6msgs) |
+| ------------- | ------- | --------------------- | -------------------- |
+| GPT-4o        | 128K    | ~19K tokens           | ~32K tokens          |
+| DeepSeek V3   | 128K    | ~19K tokens           | ~32K tokens          |
+| Claude Sonnet | 200K    | ~30K tokens           | ~50K tokens          |
+| Doubao Lite   | ~32K    | ~4.8K tokens          | ~8K tokens           |
 
 **为什么用 `fraction` 而非 `tokens`？**
 
@@ -74,13 +74,13 @@ Agent 的对话历史是无限增长的：
 ```typescript
 // src/agents/coding-agent.ts
 summarizationMiddleware({
-    model,                                       // 复用主模型做摘要
+    model, // 复用主模型做摘要
     trigger: [
-        { fraction: 0.15, messages: 10 },        // 多轮对话，15% 窗口
-        { fraction: 0.25, messages: 6 },         // 少量超长消息，25% 窗口
+        { fraction: 0.15, messages: 10 }, // 多轮对话，15% 窗口
+        { fraction: 0.25, messages: 6 }, // 少量超长消息，25% 窗口
     ],
-    keep: { messages: 24 },                      // 保留最近 24 条原文
-})
+    keep: { messages: 24 }, // 保留最近 24 条原文
+});
 ```
 
 ### 3.3 摘要执行流程
@@ -106,6 +106,7 @@ summarizationMiddleware({
 **为什么用双触发器而不是单阈值？**
 
 单阈值 `fraction > 0.15` 的问题：
+
 - 如果用户发长段代码粘贴，占比瞬间飙升但消息数很少 → 此时触发摘要反而干扰当前任务
 - 双触发器通过 AND 关系避免这种误触发：消息数也成为必要条件
 
@@ -133,17 +134,18 @@ LLM API 的前缀缓存机制：如果请求的前缀与之前相同，API 会�
 ```
 
 **关键设计**：
+
 - System Prompt + Tool Definitions 放最前面，永远不变 → 始终命中缓存 → 省时间、省成本
 - 摘要放在中间，只在触发生效时才变 → 缓存失效范围最小
 - 新消息在末尾，频繁变动 → 只有这部分无法缓存，但这是必需的
 
 **缓存命中率估算**：
 
-| 对话阶段 | 命中率 | 说明 |
-|---------|--------|------|
-| 短对话（<6轮） | ~40% | 消息本身变化多，但 system prompt 占比大 |
-| 中对话（6-15轮） | ~60% | 摘要未触发，system+tools 稳定命中 |
-| 长对话（>15轮） | ~70% | 摘要生成后稳定，recent messages 占比高 |
+| 对话阶段         | 命中率 | 说明                                    |
+| ---------------- | ------ | --------------------------------------- |
+| 短对话（<6轮）   | ~40%   | 消息本身变化多，但 system prompt 占比大 |
+| 中对话（6-15轮） | ~60%   | 摘要未触发，system+tools 稳定命中       |
+| 长对话（>15轮）  | ~70%   | 摘要生成后稳定，recent messages 占比高  |
 
 ## 5. Layer 3: UI 指示器
 
@@ -155,12 +157,12 @@ Context: 4.2Kt · 14 msgs · ██████░░░░ 60%
 
 **颜色语义**：
 
-| 使用率 | 颜色 | 含义 |
-|--------|------|------|
-| < 30% | green | 轻量，接近新对话 |
-| 30-60% | green | 正常范围 |
+| 使用率 | 颜色   | 含义                   |
+| ------ | ------ | ---------------------- |
+| < 30%  | green  | 轻量，接近新对话       |
+| 30-60% | green  | 正常范围               |
 | 60-85% | yellow | 较高，摘要即将或已触发 |
-| > 85% | red | 临界，需关注 |
+| > 85%  | red    | 临界，需关注           |
 
 **实现位置**：ChatView 底部，流式输出结束后显示。
 
@@ -172,45 +174,46 @@ Context: 4.2Kt · 14 msgs · ██████░░░░ 60%
 import { countTokensApproximately } from 'langchain';
 
 // 使用 LangChain 内置的近似算法 (字符数 / 4)
-export function estimateTokens(messages: BaseMessage[]): number
+export function estimateTokens(messages: BaseMessage[]): number;
 
 // 估算使用率 (0-1)
-export function estimateContextUsage(messages: BaseMessage[]): number
+export function estimateContextUsage(messages: BaseMessage[]): number;
 
 // 是否超过安全阈值
-export function isContextOverloaded(messages: BaseMessage[]): boolean
+export function isContextOverloaded(messages: BaseMessage[]): boolean;
 
 // 格式化显示
-export function formatTokens(tokens: number): string
+export function formatTokens(tokens: number): string;
 
 // 完整摘要
-export function getContextSummary(messages: BaseMessage[]): ContextSummary
+export function getContextSummary(messages: BaseMessage[]): ContextSummary;
 ```
 
 使用 `/4` 近似而不是 `tiktoken` 精确计算的原因：
+
 - 不需要额外的 tokenizer 依赖
 - 对中文友好（`字符/4` ≈ `字符*0.25`，中文约 1.5-2 token/字，英文约 0.25-0.3 token/字）
 - 摘要中间件只在判断触发条件时需要精度，`/4` 足够
 
 ## 7. 边界情况
 
-| 场景 | 处理方式 |
-|------|---------|
-| 摘要触发时正在 HITL 中断 | 不影响，摘要只压缩已完成的消息，中断中状态独立 |
-| 摘要后 TodoList 状态 | 不丢失，todos 在 state 中独立于 messages |
-| 流式输出中触发 | 不可能，摘要在 model call 前检查 |
-| 首轮对话就超限（超长 system prompt） | 不会触发，摘要需要 messages > 6/8 |
-| 摘要模型调用失败 | middleware 内置降级，失败时跳过摘要继续执行 |
+| 场景                                 | 处理方式                                       |
+| ------------------------------------ | ---------------------------------------------- |
+| 摘要触发时正在 HITL 中断             | 不影响，摘要只压缩已完成的消息，中断中状态独立 |
+| 摘要后 TodoList 状态                 | 不丢失，todos 在 state 中独立于 messages       |
+| 流式输出中触发                       | 不可能，摘要在 model call 前检查               |
+| 首轮对话就超限（超长 system prompt） | 不会触发，摘要需要 messages > 6/8              |
+| 摘要模型调用失败                     | middleware 内置降级，失败时跳过摘要继续执行    |
 
 ## 8. 关键文件
 
-| 文件 | 职责 |
-|------|------|
-| `src/agents/coding-agent.ts` | 启用 `summarizationMiddleware`，配置 trigger/keep |
-| `src/utils/token-counter.ts` | token 估算、使用率计算、格式化 |
-| `src/cli/app.tsx` | 每轮末尾计算 `contextSummary` 并传递给 UI |
-| `src/cli/components/chat-view.tsx` | 底部渲染上下文用量指示器 |
+| 文件                               | 职责                                              |
+| ---------------------------------- | ------------------------------------------------- |
+| `src/agents/coding-agent.ts`       | 启用 `summarizationMiddleware`，配置 trigger/keep |
+| `src/utils/token-counter.ts`       | token 估算、使用率计算、格式化                    |
+| `src/cli/app.tsx`                  | 每轮末尾计算 `contextSummary` 并传递给 UI         |
+| `src/cli/components/chat-view.tsx` | 底部渲染上下文用量指示器                          |
 
 ---
 
-*最后更新：2026-05-31*
+_最后更新：2026-05-31_
