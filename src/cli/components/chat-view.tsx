@@ -57,10 +57,10 @@ function toolLabel(name: string): string {
     const labels: Record<string, string> = {
         bash: '执行命令',
         grep: '搜索代码',
-        ls: '读取目录',
-        tree: '查看项目树',
+        ls: '查看目录',
+        tree: '查看文件树',
         text_editor: '编辑器',
-        todo_write: '更新 TodoList',
+        todo_write: 'TodoList',
     };
 
     return labels[name] ?? '调用工具';
@@ -165,25 +165,25 @@ export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], i
                         return (
                             <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
                                 {visibleToolCalls.map((toolCall) => {
-	                                    const detail = toolDetail(toolCall.name, toolCall.args ?? {});
-	                                    return (
-	                                        <Box key={toolCall.id ?? toolCall.name} flexDirection="row">
-	                                            <Box width={3}>
-	                                                <Text color="cyan" bold>
-	                                                    {toolIcon(toolCall.name)}
-	                                                </Text>
-	                                            </Box>
-	                                            <Text color="gray">{toolLabel(toolCall.name)} </Text>
+                                    const detail = toolDetail(toolCall.name, toolCall.args ?? {});
+                                    return (
+                                        <Box key={toolCall.id ?? toolCall.name} flexDirection="row">
+                                            <Box width={3}>
+                                                <Text color="cyan" bold>
+                                                    {toolIcon(toolCall.name)}
+                                                </Text>
+                                            </Box>
+                                            <Text color="gray">{toolLabel(toolCall.name)} </Text>
                                             <Text color="magenta" bold>
                                                 [{toolCall.name}]
                                             </Text>
-	                                            {detail ? (
-	                                                <Text color="gray" wrap="truncate-end">
-	                                                    {' '}
-	                                                    {detail}
-	                                                </Text>
-	                                            ) : null}
-	                                        </Box>
+                                            {detail ? (
+                                                <Text color="gray" wrap="truncate-end">
+                                                    {' '}
+                                                    {detail}
+                                                </Text>
+                                            ) : null}
+                                        </Box>
                                     );
                                 })}
                             </Box>
