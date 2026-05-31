@@ -1,13 +1,21 @@
 import { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import SelectInput from 'ink-select-input';
-import { AIMessage, AIMessageChunk, BaseMessage, HumanMessage, ToolCall, ToolCallChunk, ToolMessage } from '@langchain/core/messages';
+import { AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolCall, ToolCallChunk, ToolMessage } from '@langchain/core/messages';
 import { Command, StateSnapshot } from '@langchain/langgraph';
 import { createCodingAgent } from '@/agents/coding-agent';
+import { getContextSummary } from '@/utils/token-counter';
 import { ChatView } from './components/chat-view';
 import { ChatInput } from './components/chat-input';
 import { Banner } from './components/banner';
 import type { TodoItem } from '@/middlewares/todo-list';
+
+interface ContextSummary {
+    tokens: number;
+    usage: number;
+    messageCount: number;
+    label: string;
+}
 
 type CodingAgent = Awaited<ReturnType<typeof createCodingAgent>>;
 
@@ -43,6 +51,7 @@ export const App = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [streamingContent, setStreamingContent] = useState('');
     const [todos, setTodos] = useState<TodoItem[]>([]);
+    const [contextSummary, setContextSummary] = useState<ContextSummary | null>(null);
     const [interruptInfo, setInterruptInfo] = useState<{
         description: string;
         tool: string;
@@ -163,7 +172,13 @@ export const App = () => {
             const finalState: StateSnapshot = await agent.getState({ configurable: { thread_id: '1' } });
             const finalValues = finalState.values as Record<string, unknown>;
             if (Array.isArray(finalValues.messages)) {
-                setMessages(finalValues.messages as BaseMessage[]);
+                // 过滤掉 SystemMessage（摘要、prompt 等），只保留用户可见的会话消息
+                const stateMessages = (finalValues.messages as BaseMessage[]).filter(
+                    (msg) => !SystemMessage.isInstance(msg),
+                );
+                setMessages(stateMessages);
+                // 上下文统计基于完整消息（含 SystemMessage），更准确反映实际 token 用量
+                setContextSummary(getContextSummary(finalValues.messages as BaseMessage[]));
             }
             if (Array.isArray(finalValues.todos)) {
                 setTodos(finalValues.todos as TodoItem[]);
@@ -223,7 +238,13 @@ export const App = () => {
                 </Box>
             </Box>
             <Box flexDirection="column" flexGrow={1}>
-                <ChatView messages={messages} todos={todos} isGenerating={isGenerating} streamingContent={streamingContent} />
+                <ChatView
+                    messages={messages}
+                    todos={todos}
+                    isGenerating={isGenerating}
+                    streamingContent={streamingContent}
+                    contextSummary={contextSummary}
+                />
                 {interruptInfo ? (
                     <Box
                         flexDirection="column"

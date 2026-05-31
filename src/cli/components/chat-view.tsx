@@ -5,13 +5,22 @@ import Spinner from 'ink-spinner';
 import { TodoListView } from './todo-list-view';
 import { MarkdownText } from './markdown-text';
 import { TodoItem } from '@/middlewares/todo-list';
+import { formatTokens } from '@/utils/token-counter';
 import { project } from '@/project';
+
+interface ContextSummary {
+    tokens: number;
+    usage: number;
+    messageCount: number;
+    label: string;
+}
 
 interface ChatViewProps {
     messages: BaseMessage[];
     todos: TodoItem[];
     isGenerating: boolean;
     streamingContent?: string;
+    contextSummary?: ContextSummary | null;
 }
 
 const MAX_INLINE_LENGTH = 96;
@@ -127,7 +136,7 @@ function isErrorToolMessage(msg: ToolMessage): boolean {
 }
 
 export const ChatView: React.FC<ChatViewProps> = memo(
-    ({ messages, todos = [], isGenerating, streamingContent }) => {
+    ({ messages, todos = [], isGenerating, streamingContent, contextSummary }) => {
         return (
             <Box flexDirection="column" paddingX={1} flexGrow={1}>
                 <Box flexDirection="column" flexGrow={1}>
@@ -224,6 +233,50 @@ export const ChatView: React.FC<ChatViewProps> = memo(
                         </Text>
                     </Box>
                 ) : null}
+
+                {/* 上下文用量指示器 */}
+                {contextSummary && (
+                    <Box flexDirection="row" marginTop={1} alignItems="center">
+                        <Text color="gray" dimColor>
+                            Context:{' '}
+                        </Text>
+                        <Text
+                            color={
+                                contextSummary.label === 'critical'
+                                    ? 'red'
+                                    : contextSummary.label === 'heavy'
+                                      ? 'yellow'
+                                      : 'gray'
+                            }
+                        >
+                            {formatTokens(contextSummary.tokens)}t
+                        </Text>
+                        <Text color="gray" dimColor>
+                            {' · '}
+                            {contextSummary.messageCount} msgs
+                            {' · '}
+                        </Text>
+                        {/* 简易进度条 */}
+                        <Text
+                            color={
+                                contextSummary.usage > 0.85
+                                    ? 'red'
+                                    : contextSummary.usage > 0.6
+                                      ? 'yellow'
+                                      : 'green'
+                            }
+                        >
+                            {'█'.repeat(Math.max(1, Math.ceil(contextSummary.usage * 10)))}
+                        </Text>
+                        <Text color="gray" dimColor>
+                            {'░'.repeat(
+                                Math.max(0, 10 - Math.ceil(contextSummary.usage * 10)),
+                            )}
+                            {' '}
+                            {Math.round(contextSummary.usage * 100)}%
+                        </Text>
+                    </Box>
+                )}
             </Box>
         </Box>
     );
