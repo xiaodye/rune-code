@@ -6,7 +6,7 @@ interface MarkdownTextProps {
     content: string;
 }
 
-/** A flat, unstyled text segment — Ink renders each as a separate <Text> to avoid nesting bugs */
+/** 展平后的原子样式段 — 每个段渲染为独立的 <Text>，零嵌套以避免 Ink 样式丢失 bug */
 interface FlatSegment {
     text: string;
     bold?: boolean;
@@ -16,7 +16,7 @@ interface FlatSegment {
     strikethrough?: boolean;
 }
 
-/** Recursively flatten inline tokens into a non-nested array of styled segments */
+/** 递归将行内 token 树展平为无嵌套的 FlatSegment 数组 */
 function flattenInline(tokens: Token[] | undefined): FlatSegment[] {
     if (!tokens) return [];
     const result: FlatSegment[] = [];
@@ -89,7 +89,7 @@ function flattenInline(tokens: Token[] | undefined): FlatSegment[] {
     return result;
 }
 
-/** Render flat segments as separate <Text> elements inside a flex-wrap Box */
+/** 将 FlatSegment 数组渲染为 <Box flexWrap> 内的一组独立 <Text> */
 function renderSegments(
     segments: FlatSegment[],
     keyPrefix: string,
@@ -100,7 +100,6 @@ function renderSegments(
     return (
         <Box key={keyPrefix} flexDirection="row" flexWrap="wrap">
             {segments.map((seg, i) => {
-                // Skip empty segments (but keep spaces)
                 if (!seg.text) return null;
 
                 return (
@@ -120,7 +119,7 @@ function renderSegments(
     );
 }
 
-/** Heading colors by depth */
+/** 按深度分级的标题颜色 */
 const HEADING_COLORS: Record<number, string> = {
     1: '#FFD700',
     2: '#00CED1',
@@ -130,7 +129,7 @@ const HEADING_COLORS: Record<number, string> = {
     6: '#B0C4DE',
 };
 
-/** Render a single block-level token */
+/** 渲染单个块级 token */
 function renderBlock(token: Token, key: number): React.ReactNode {
     switch (token.type) {
         case 'heading': {
@@ -138,7 +137,6 @@ function renderBlock(token: Token, key: number): React.ReactNode {
             const color = HEADING_COLORS[h.depth] || 'white';
             const prefix = h.depth === 1 ? '━ '.repeat(3) : '';
             const segments = flattenInline(h.tokens);
-            // Prepend the h1 decoration as a segment
             const allSegments: FlatSegment[] = prefix
                 ? [{ text: prefix, bold: true, color }, ...segments]
                 : segments;
@@ -254,7 +252,7 @@ function renderBlock(token: Token, key: number): React.ReactNode {
 
             return (
                 <Box key={key} flexDirection="column" marginTop={1}>
-                    {/* Header */}
+                    {/* 表头 */}
                     <Box flexDirection="row">
                         {table.header.map((cell, ci) => (
                             <Box key={ci} width={padded[ci]}>
@@ -264,7 +262,7 @@ function renderBlock(token: Token, key: number): React.ReactNode {
                             </Box>
                         ))}
                     </Box>
-                    {/* Separator */}
+                    {/* 分隔线 */}
                     <Box flexDirection="row">
                         {table.header.map((_, ci) => (
                             <Box key={ci} width={padded[ci]}>
@@ -274,7 +272,7 @@ function renderBlock(token: Token, key: number): React.ReactNode {
                             </Box>
                         ))}
                     </Box>
-                    {/* Rows */}
+                    {/* 数据行 */}
                     {table.rows.map((row, ri) => (
                         <Box key={ri} flexDirection="row">
                             {row.map((cell, ci) => (
@@ -304,13 +302,11 @@ function renderBlock(token: Token, key: number): React.ReactNode {
 }
 
 /**
- * Terminal-aware markdown renderer using Ink components.
+ * 终端 Markdown 渲染器，基于 marked 词法分析 + Ink 组件。
  *
- * Uses a flat-segment architecture: inline tokens are recursively flattened
- * into a non-nested array of { text, bold?, dim?, color?, ... } descriptors,
- * then rendered as sibling <Text> elements inside a <Box flexWrap="wrap">.
- * This avoids Ink's known issue where wrapping <Text> with nested <Text bold>
- * children can silently drop styling.
+ * 采用展平架构：将嵌套的行内 token 树递归展平为 FlatSegment 数组，
+ * 每个段渲染为独立的 <Text>，放入 <Box flexWrap="wrap"> 中。
+ * 这避免了 Ink 中 <Text wrap="wrap"> 嵌套 <Text bold> 时样式丢失的已知问题。
  */
 export const MarkdownText: React.FC<MarkdownTextProps> = ({ content }) => {
     if (!content?.trim()) {
@@ -321,6 +317,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content }) => {
     try {
         tokens = marked.lexer(content);
     } catch {
+        // 解析失败时退回纯文本渲染
         return (
             <Box marginTop={1}>
                 <Text wrap="wrap">{content}</Text>

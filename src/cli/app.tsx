@@ -11,7 +11,7 @@ import type { TodoItem } from '@/middlewares/todo-list';
 
 type CodingAgent = Awaited<ReturnType<typeof createCodingAgent>>;
 
-/** Merge streaming tool_call_chunks into complete ToolCall objects */
+/** 将流式 tool_call_chunks 合并为完整的 ToolCall 对象 */
 function mergeToolCallChunks(chunks: ToolCallChunk[]): ToolCall[] {
     const merged: Record<number, { name: string; args: string; id: string }> = {};
     for (const chunk of chunks) {
@@ -64,7 +64,7 @@ export const App = () => {
         if (!agent) return;
         setIsGenerating(true);
 
-        // Draft buffers for accumulating streaming tokens
+        // 草稿缓冲区，用于累积流式 token
         let draftContent = '';
         let draftToolCallChunks: ToolCallChunk[] = [];
 
@@ -77,7 +77,7 @@ export const App = () => {
                 tool_calls: mergedCalls.length > 0 ? mergedCalls : undefined,
             });
 
-            // Extract todo updates from merged tool calls
+            // 从合并后的工具调用中提取 todo 更新
             for (const tc of mergedCalls) {
                 if (tc.name === 'todo_write' && tc.args?.todos) {
                     setTodos(tc.args.todos);
@@ -101,27 +101,27 @@ export const App = () => {
                 const [msg] = chunk as [BaseMessage, any];
 
                 if (AIMessageChunk.isInstance(msg)) {
-                    // Accumulate streaming text content token by token
+                    // 逐 token 累积流式文本
                     if (typeof msg.content === 'string' && msg.content) {
                         draftContent += msg.content;
                         setStreamingContent(draftContent);
                     }
-                    // Accumulate tool call chunks
+                    // 累积工具调用片段
                     if (msg.tool_call_chunks?.length) {
                         draftToolCallChunks.push(...msg.tool_call_chunks);
                     }
                 } else if (ToolMessage.isInstance(msg)) {
-                    // Tool result arrived — commit the preceding AI message first
+                    // 工具结果到达 — 先提交前面的 AI 消息
                     commitDraft();
                     setMessages((prev) => [...prev, msg]);
                 }
-                // HumanMessage is skipped — already added to UI before calling runAgent
+                // HumanMessage 跳过 — 在调用 runAgent 之前已添加到 UI
             }
 
-            // Commit any remaining draft (final AI response of this turn)
+            // 提交残余草稿（本轮最终 AI 回复）
             commitDraft();
 
-            // Check for interrupt (HITL)
+            // 检查是否有中断（HITL）
             const state: StateSnapshot = await agent.getState({ configurable: { thread_id: '1' } });
             const stateValues = state.values as Record<string, unknown>;
             const tasks = stateValues.tasks as Array<{ interrupts?: Array<{ value: unknown }> }> | undefined;
@@ -152,9 +152,21 @@ export const App = () => {
                         decisionCount,
                     });
                 } else {
-                    // Auto-approve safe commands
+                    // 自动批准安全命令
                     await autoResume(decisionCount);
                 }
+            }
+
+            // 从 agent state 同步完整消息列表到 UI，补全通过中间件 Command
+            // （如 todo_write）直接写入 state 而未出现在 stream 中的 ToolMessage。
+            // 否则下轮对话传入的 history 缺少 ToolMessage 会导致 API 400 错误。
+            const finalState: StateSnapshot = await agent.getState({ configurable: { thread_id: '1' } });
+            const finalValues = finalState.values as Record<string, unknown>;
+            if (Array.isArray(finalValues.messages)) {
+                setMessages(finalValues.messages as BaseMessage[]);
+            }
+            if (Array.isArray(finalValues.todos)) {
+                setTodos(finalValues.todos as TodoItem[]);
             }
         } catch (error) {
             setMessages((prev) => [...prev, new AIMessage(`Error: ${error}`)]);
@@ -187,7 +199,7 @@ export const App = () => {
         );
     };
 
-    // Helper to auto-resume
+    // 自动恢复执行（批准安全命令）
     const autoResume = async (decisionCount = 1) => {
         await runAgent(
             new Command({
