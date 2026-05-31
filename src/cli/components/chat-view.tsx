@@ -10,6 +10,7 @@ interface ChatViewProps {
     messages: BaseMessage[];
     todos: TodoItem[];
     isGenerating: boolean;
+    streamingContent?: string;
 }
 
 const MAX_INLINE_LENGTH = 96;
@@ -124,11 +125,12 @@ function isErrorToolMessage(msg: ToolMessage): boolean {
     return typeof msg.content === 'string' && /^`{0,3}\s*error[:\s]/i.test(msg.content.trim());
 }
 
-export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], isGenerating }) => {
-    return (
-        <Box flexDirection="column" paddingX={1} flexGrow={1}>
-            <Box flexDirection="column" flexGrow={1}>
-                {messages.map((msg, index) => {
+export const ChatView: React.FC<ChatViewProps> = memo(
+    ({ messages, todos = [], isGenerating, streamingContent }) => {
+        return (
+            <Box flexDirection="column" paddingX={1} flexGrow={1}>
+                <Box flexDirection="column" flexGrow={1}>
+                    {messages.map((msg, index) => {
                     if (HumanMessage.isInstance(msg)) {
                         const content = messageText(msg.content);
 
@@ -206,13 +208,23 @@ export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], i
                 })}
 
                 {todos.length !== 0 && <TodoListView todos={todos} />}
-                {isGenerating && (
+                {streamingContent ? (
+                    <Box flexDirection="column" marginTop={1}>
+                        <Text color="green" bold>
+                            Rune
+                        </Text>
+                        <Text wrap="wrap">
+                            {streamingContent}
+                            <Text color="green">▊</Text>
+                        </Text>
+                    </Box>
+                ) : isGenerating ? (
                     <Box flexDirection="column" marginTop={1}>
                         <Text color="gray">
                             <Spinner type="dots" /> Working
                         </Text>
                     </Box>
-                )}
+                ) : null}
             </Box>
         </Box>
     );
