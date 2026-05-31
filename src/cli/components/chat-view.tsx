@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import { BaseMessage, HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import Spinner from 'ink-spinner';
 import { TodoListView } from './todo-list-view';
+import { MarkdownText } from './markdown-text';
 import { TodoItem } from '@/middlewares/todo-list';
 import { project } from '@/project';
 
@@ -151,7 +152,7 @@ export const ChatView: React.FC<ChatViewProps> = memo(
                                     <Text color="green" bold>
                                         Rune
                                     </Text>
-                                    <Text wrap="wrap">{content}</Text>
+                                    <MarkdownText content={content} />
                                 </Box>
                             );
                         }
@@ -213,10 +214,8 @@ export const ChatView: React.FC<ChatViewProps> = memo(
                         <Text color="green" bold>
                             Rune
                         </Text>
-                        <Text wrap="wrap">
-                            {streamingContent}
-                            <Text color="green">▊</Text>
-                        </Text>
+                        <MarkdownText content={streamingContent} />
+                        <Text color="green">▊</Text>
                     </Box>
                 ) : isGenerating ? (
                     <Box flexDirection="column" marginTop={1}>
