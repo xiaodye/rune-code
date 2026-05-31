@@ -1,4 +1,4 @@
-# Rune Code Node 流式输出实现原理
+# Rune Code 流式输出实现原理
 
 本文档详细解析 CLI 中 token 级流式输出的设计方案、数据流与核心实现。
 
@@ -10,7 +10,7 @@
 
 ```typescript
 const stream = await agent.stream(input, {
-    streamMode: 'updates',  // 节点级批量
+    streamMode: 'updates', // 节点级批量
     configurable: { thread_id: '1' },
 });
 
@@ -32,11 +32,11 @@ for await (const chunk of stream) {
 
 ## 2. LangGraph 流模式对比
 
-| 模式 | 粒度 | chunk 结构 | 适用场景 |
-|------|------|-----------|---------|
-| `values` | 状态快照 | 完整 state | 状态监听 |
-| `updates` | 节点级 | `{ nodeName: { ... } }` | 节点完成后回调 |
-| `messages` | token 级 | `[Message, Metadata]` | **流式 UI 渲染** |
+| 模式       | 粒度     | chunk 结构              | 适用场景         |
+| ---------- | -------- | ----------------------- | ---------------- |
+| `values`   | 状态快照 | 完整 state              | 状态监听         |
+| `updates`  | 节点级   | `{ nodeName: { ... } }` | 节点完成后回调   |
+| `messages` | token 级 | `[Message, Metadata]`   | **流式 UI 渲染** |
 
 `messages` 模式下，每个 chunk 是一个二元组 `[message, metadata]`：
 
@@ -52,15 +52,15 @@ for await (const chunk of stream) {
 
 ```typescript
 class AIMessageChunk {
-    content: string;              // 增量文本，每次一个新 token
-    tool_call_chunks?: ToolCallChunk[];  // 工具调用的流式片段
+    content: string; // 增量文本，每次一个新 token
+    tool_call_chunks?: ToolCallChunk[]; // 工具调用的流式片段
 }
 
 interface ToolCallChunk {
-    name?: string;    // 工具名（仅在首片段出现）
-    args?: string;    // JSON 参数字符串的增量片段
-    id?: string;      // 调用 ID（仅在首片段出现）
-    index?: number;   // 多工具调用时的序号
+    name?: string; // 工具名（仅在首片段出现）
+    args?: string; // JSON 参数字符串的增量片段
+    id?: string; // 调用 ID（仅在首片段出现）
+    index?: number; // 多工具调用时的序号
 }
 ```
 
@@ -94,8 +94,8 @@ interface ToolCallChunk {
 在 `runAgent` 函数内部，每次流式交互维护三个局部变量：
 
 ```typescript
-let draftContent = '';                  // 文本缓冲
-let draftToolCallChunks: ToolCallChunk[] = [];  // 工具调用片段缓冲
+let draftContent = ''; // 文本缓冲
+let draftToolCallChunks: ToolCallChunk[] = []; // 工具调用片段缓冲
 ```
 
 > **为什么用局部变量而非 React state？**
@@ -124,16 +124,16 @@ const commitDraft = () => {
     setMessages((prev) => [...prev, aiMsg]);
     draftContent = '';
     draftToolCallChunks = [];
-    setStreamingContent('');  // 清空流式显示
+    setStreamingContent(''); // 清空流式显示
 };
 ```
 
 **提交时机有两个**：
 
-| 时机 | 触发条件 | 说明 |
-|------|---------|------|
+| 时机         | 触发条件                      | 说明                                                    |
+| ------------ | ----------------------------- | ------------------------------------------------------- |
 | 工具结果到达 | `ToolMessage.isInstance(msg)` | LLM 完成文本+工具调用 → 工具已执行 → 提交前一个 AI 消息 |
-| 流结束 | `for await` 循环退出 | 最后一轮 AI 回复（无工具调用或对话结束）→ 提交残余草案 |
+| 流结束       | `for await` 循环退出          | 最后一轮 AI 回复（无工具调用或对话结束）→ 提交残余草案  |
 
 ```
 时间线示例：
@@ -179,7 +179,7 @@ function mergeToolCallChunks(chunks: ToolCallChunk[]): ToolCall[] {
                 id: chunk.id ?? '',
             };
         } else {
-            if (chunk.args) merged[idx].args += chunk.args;      // args 拼接
+            if (chunk.args) merged[idx].args += chunk.args; // args 拼接
             if (chunk.name && !merged[idx].name) merged[idx].name = chunk.name;
             if (chunk.id && !merged[idx].id) merged[idx].id = chunk.id;
         }
@@ -188,7 +188,7 @@ function mergeToolCallChunks(chunks: ToolCallChunk[]): ToolCall[] {
     return Object.values(merged).map(
         (tc): ToolCall => ({
             name: tc.name,
-            args: JSON.parse(tc.args),   // 累积完成后一次性解析
+            args: JSON.parse(tc.args), // 累积完成后一次性解析
             id: tc.id || undefined,
             type: 'tool_call' as const,
         }),
@@ -227,11 +227,11 @@ function mergeToolCallChunks(chunks: ToolCallChunk[]): ToolCall[] {
 ) : null}
 ```
 
-| 状态 | 条件 | 显示 |
-|------|------|------|
-| 流式输出中 | `streamingContent` 非空 | 实时文本 + `▊` 光标 |
-| 等待首 token | `isGenerating` 且 `streamingContent` 为空 | `⠋ Working` 动画 |
-| 空闲 | 两者皆空 | 不显示 |
+| 状态         | 条件                                      | 显示                |
+| ------------ | ----------------------------------------- | ------------------- |
+| 流式输出中   | `streamingContent` 非空                   | 实时文本 + `▊` 光标 |
+| 等待首 token | `isGenerating` 且 `streamingContent` 为空 | `⠋ Working` 动画    |
+| 空闲         | 两者皆空                                  | 不显示              |
 
 ### 5.2 状态流转
 
@@ -274,13 +274,13 @@ const runAgent = async (input: { messages: BaseMessage[] } | Command) => {
 };
 ```
 
-| 类型 | 来源 | 用途 |
-|------|------|------|
+| 类型             | 来源                       | 用途                        |
+| ---------------- | -------------------------- | --------------------------- |
 | `AIMessageChunk` | `@langchain/core/messages` | `isInstance` 判定流式 token |
-| `ToolCallChunk` | `@langchain/core/messages` | 工具调用片段缓冲 |
-| `ToolCall` | `@langchain/core/messages` | 合并后的完整工具调用 |
-| `ToolMessage` | `@langchain/core/messages` | `isInstance` 判定工具结果 |
-| `StateSnapshot` | `@langchain/langgraph` | `getState()` 返回值 |
+| `ToolCallChunk`  | `@langchain/core/messages` | 工具调用片段缓冲            |
+| `ToolCall`       | `@langchain/core/messages` | 合并后的完整工具调用        |
+| `ToolMessage`    | `@langchain/core/messages` | `isInstance` 判定工具结果   |
+| `StateSnapshot`  | `@langchain/langgraph`     | `getState()` 返回值         |
 
 ## 7. 与 HITL 中断的协作
 
@@ -333,11 +333,11 @@ finally {
 
 ## 9. 关键文件
 
-| 文件 | 职责 |
-|------|------|
-| `src/cli/app.tsx` | 流式数据源：`streamMode: 'messages'`、草稿累积、`commitDraft`、中断检测 |
-| `src/cli/components/chat-view.tsx` | 流式渲染：三态显示、`streamingContent` prop、光标动画 |
+| 文件                               | 职责                                                                    |
+| ---------------------------------- | ----------------------------------------------------------------------- |
+| `src/cli/app.tsx`                  | 流式数据源：`streamMode: 'messages'`、草稿累积、`commitDraft`、中断检测 |
+| `src/cli/components/chat-view.tsx` | 流式渲染：三态显示、`streamingContent` prop、光标动画                   |
 
 ---
 
-*最后更新：2026-05-31*
+_最后更新：2026-05-31_

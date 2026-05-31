@@ -4,122 +4,87 @@ import { marked, Token, Tokens } from 'marked';
 
 interface MarkdownTextProps {
     content: string;
+    trailing?: React.ReactNode;
 }
 
-/** 展平后的原子样式段 — 每个段渲染为独立的 <Text>，零嵌套以避免 Ink 样式丢失 bug */
-interface FlatSegment {
-    text: string;
-    bold?: boolean;
-    dim?: boolean;
-    color?: string;
-    underline?: boolean;
-    strikethrough?: boolean;
-}
-
-/** 递归将行内 token 树展平为无嵌套的 FlatSegment 数组 */
-function flattenInline(tokens: Token[] | undefined): FlatSegment[] {
+/** 递归渲染行内 token，直接嵌套 Ink Text，简单直接 */
+function renderInline(tokens: Token[] | undefined, keyPrefix: string): React.ReactNode[] {
     if (!tokens) return [];
-    const result: FlatSegment[] = [];
+    return tokens.map((token, i) => {
+        const key = `${keyPrefix}-${i}`;
 
-    for (const token of tokens) {
         switch (token.type) {
             case 'text':
-                result.push({ text: token.text });
-                break;
+                return token.text;
 
-            case 'strong': {
-                const inner = flattenInline(token.tokens);
-                for (const seg of inner) {
-                    result.push({ ...seg, bold: true });
-                }
-                break;
-            }
+            case 'strong':
+                return (
+                    <Text key={key} bold>
+                        {renderInline(token.tokens, key)}
+                    </Text>
+                );
 
-            case 'em': {
-                const inner = flattenInline(token.tokens);
-                for (const seg of inner) {
-                    result.push({ ...seg, dim: true });
-                }
-                break;
-            }
+            case 'em':
+                return (
+                    <Text key={key} dimColor>
+                        {renderInline(token.tokens, key)}
+                    </Text>
+                );
 
-            case 'del': {
-                const inner = flattenInline(token.tokens);
-                for (const seg of inner) {
-                    result.push({ ...seg, dim: true, strikethrough: true });
-                }
-                break;
-            }
+            case 'del':
+                return (
+                    <Text key={key} dimColor strikethrough>
+                        {renderInline(token.tokens, key)}
+                    </Text>
+                );
 
             case 'codespan':
-                result.push({ text: token.text, color: 'cyan' });
-                break;
+                return (
+                    <Text key={key} color="cyan">
+                        {token.text}
+                    </Text>
+                );
 
             case 'link': {
                 const linkToken = token as Tokens.Link;
-                const inner = flattenInline(linkToken.tokens);
-                for (const seg of inner) {
-                    result.push({ ...seg, underline: true, color: seg.color || 'blue' });
-                }
-                result.push({ text: ` (${linkToken.href})`, dim: true });
-                break;
+                return (
+                    <Text key={key}>
+                        <Text underline color="blue">
+                            {renderInline(linkToken.tokens, key)}
+                        </Text>
+                        <Text dimColor> ({linkToken.href})</Text>
+                    </Text>
+                );
             }
 
             case 'image': {
                 const imgToken = token as Tokens.Image;
-                result.push({ text: `[Image: ${imgToken.text || imgToken.href}]`, dim: true });
-                break;
+                return (
+                    <Text key={key} dimColor>
+                        [Image: {imgToken.text || imgToken.href}]
+                    </Text>
+                );
             }
 
             case 'br':
-                result.push({ text: '\n' });
-                break;
+                return '\n';
 
             case 'escape':
-                result.push({ text: token.text, dim: true });
-                break;
+                return (
+                    <Text key={key} dimColor>
+                        {token.text}
+                    </Text>
+                );
 
             default:
                 if ('text' in token && typeof token.text === 'string') {
-                    result.push({ text: token.text });
+                    return token.text;
                 }
+                return null;
         }
-    }
-
-    return result;
+    });
 }
 
-/** 将 FlatSegment 数组渲染为 <Box flexWrap> 内的一组独立 <Text> */
-function renderSegments(
-    segments: FlatSegment[],
-    keyPrefix: string,
-    extraTextProps: { color?: string; bold?: boolean } = {},
-): React.ReactNode {
-    if (segments.length === 0) return null;
-
-    return (
-        <Box key={keyPrefix} flexDirection="row" flexWrap="wrap">
-            {segments.map((seg, i) => {
-                if (!seg.text) return null;
-
-                return (
-                    <Text
-                        key={`${keyPrefix}-s-${i}`}
-                        bold={seg.bold ?? extraTextProps.bold}
-                        dimColor={seg.dim}
-                        color={seg.color ?? extraTextProps.color}
-                        underline={seg.underline}
-                        strikethrough={seg.strikethrough}
-                    >
-                        {seg.text}
-                    </Text>
-                );
-            })}
-        </Box>
-    );
-}
-
-/** 按深度分级的标题颜色 */
 const HEADING_COLORS: Record<number, string> = {
     1: '#FFD700',
     2: '#00CED1',
@@ -129,31 +94,29 @@ const HEADING_COLORS: Record<number, string> = {
     6: '#B0C4DE',
 };
 
-/** 渲染单个块级 token */
 function renderBlock(token: Token, key: number): React.ReactNode {
     switch (token.type) {
         case 'heading': {
             const h = token as Tokens.Heading;
             const color = HEADING_COLORS[h.depth] || 'white';
             const prefix = h.depth === 1 ? '━ '.repeat(3) : '';
-            const segments = flattenInline(h.tokens);
-            const allSegments: FlatSegment[] = prefix
-                ? [{ text: prefix, bold: true, color }, ...segments]
-                : segments;
-
             return (
                 <Box key={key} marginTop={1}>
-                    {renderSegments(allSegments, `h-${key}`, { bold: true, color })}
+                    <Text bold color={color}>
+                        {prefix}
+                        {renderInline(h.tokens, `h-${key}`)}
+                    </Text>
                 </Box>
             );
         }
 
         case 'paragraph': {
             const p = token as Tokens.Paragraph;
-            const segments = flattenInline(p.tokens);
             return (
                 <Box key={key} marginTop={1}>
-                    {renderSegments(segments, `p-${key}`)}
+                    <Text wrap="wrap">
+                        {renderInline(p.tokens, `p-${key}`)}
+                    </Text>
                 </Box>
             );
         }
@@ -181,9 +144,7 @@ function renderBlock(token: Token, key: number): React.ReactNode {
             return (
                 <Box key={key} flexDirection="row" marginTop={1}>
                     <Box width={2} flexShrink={0}>
-                        <Text color="gray" dimColor>
-                            │
-                        </Text>
+                        <Text color="gray" dimColor>│</Text>
                     </Box>
                     <Box flexDirection="column" flexGrow={1}>
                         {bq.tokens.map((t, i) => renderBlock(t, i))}
@@ -200,7 +161,6 @@ function renderBlock(token: Token, key: number): React.ReactNode {
                         const bullet = list.ordered
                             ? `${list.start !== '' ? Number(list.start) + idx : idx + 1}. `
                             : '• ';
-
                         return (
                             <Box key={idx} flexDirection="row">
                                 <Box width={3} flexShrink={0}>
@@ -244,25 +204,22 @@ function renderBlock(token: Token, key: number): React.ReactNode {
             const colWidths: number[] = Array.from({ length: colCount }, () => 0);
             for (const row of allRows) {
                 for (let i = 0; i < colCount; i++) {
-                    const cellText = row[i]?.text ?? '';
-                    colWidths[i] = Math.max(colWidths[i], cellText.length);
+                    colWidths[i] = Math.max(colWidths[i], (row[i]?.text ?? '').length);
                 }
             }
             const padded = colWidths.map((w) => w + 2);
 
             return (
                 <Box key={key} flexDirection="column" marginTop={1}>
-                    {/* 表头 */}
                     <Box flexDirection="row">
                         {table.header.map((cell, ci) => (
                             <Box key={ci} width={padded[ci]}>
-                                {renderSegments(flattenInline(cell.tokens), `th-${key}-${ci}`, {
-                                    bold: true,
-                                })}
+                                <Text bold>
+                                    {renderInline(cell.tokens, `th-${key}-${ci}`)}
+                                </Text>
                             </Box>
                         ))}
                     </Box>
-                    {/* 分隔线 */}
                     <Box flexDirection="row">
                         {table.header.map((_, ci) => (
                             <Box key={ci} width={padded[ci]}>
@@ -272,15 +229,13 @@ function renderBlock(token: Token, key: number): React.ReactNode {
                             </Box>
                         ))}
                     </Box>
-                    {/* 数据行 */}
                     {table.rows.map((row, ri) => (
                         <Box key={ri} flexDirection="row">
                             {row.map((cell, ci) => (
                                 <Box key={ci} width={padded[ci]}>
-                                    {renderSegments(
-                                        flattenInline(cell.tokens),
-                                        `td-${key}-${ri}-${ci}`,
-                                    )}
+                                    <Text>
+                                        {renderInline(cell.tokens, `td-${key}-${ri}-${ci}`)}
+                                    </Text>
                                 </Box>
                             ))}
                         </Box>
@@ -302,22 +257,18 @@ function renderBlock(token: Token, key: number): React.ReactNode {
 }
 
 /**
- * 终端 Markdown 渲染器，基于 marked 词法分析 + Ink 组件。
- *
- * 采用展平架构：将嵌套的行内 token 树递归展平为 FlatSegment 数组，
- * 每个段渲染为独立的 <Text>，放入 <Box flexWrap="wrap"> 中。
- * 这避免了 Ink 中 <Text wrap="wrap"> 嵌套 <Text bold> 时样式丢失的已知问题。
+ * 终端 Markdown 渲染器。
+ * 基于 marked 词法分析，将 token 树映射为 Ink Text/Box 组件。
  */
-export const MarkdownText: React.FC<MarkdownTextProps> = ({ content }) => {
+export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, trailing }) => {
     if (!content?.trim()) {
-        return null;
+        return trailing ? <Text>{trailing}</Text> : null;
     }
 
     let tokens: Token[];
     try {
         tokens = marked.lexer(content);
     } catch {
-        // 解析失败时退回纯文本渲染
         return (
             <Box marginTop={1}>
                 <Text wrap="wrap">{content}</Text>
@@ -328,6 +279,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content }) => {
     return (
         <Box flexDirection="column">
             {tokens.map((token, i) => renderBlock(token, i))}
+            {trailing}
         </Box>
     );
 };

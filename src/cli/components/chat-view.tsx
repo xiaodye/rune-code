@@ -223,8 +223,10 @@ export const ChatView: React.FC<ChatViewProps> = memo(
                         <Text color="green" bold>
                             Rune
                         </Text>
-                        <MarkdownText content={streamingContent} />
-                        <Text color="green">▊</Text>
+                        <MarkdownText
+                            content={streamingContent}
+                            trailing={<Text color="green">▊</Text>}
+                        />
                     </Box>
                 ) : isGenerating ? (
                     <Box flexDirection="column" marginTop={1}>
