@@ -55,7 +55,7 @@ export async function createCodingAgent() {
             humanInTheLoopMiddleware({
                 interruptOn: {
                     bash: {
-                        allowedDecisions: ['approve', 'reject'],
+                        allowedDecisions: ['approve', 'edit', 'reject'],
                         description: 'Sensitive command execution',
                     },
                 },

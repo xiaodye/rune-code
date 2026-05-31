@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import SelectInput from 'ink-select-input';
-import { AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolCall, ToolCallChunk, ToolMessage } from '@langchain/core/messages';
+import {
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolCall,
+    ToolCallChunk,
+    ToolMessage,
+} from '@langchain/core/messages';
 import { Command, StateSnapshot } from '@langchain/langgraph';
 import { createCodingAgent } from '@/agents/coding-agent';
 import { getContextSummary } from '@/utils/token-counter';
@@ -9,6 +18,13 @@ import { ChatView } from './components/chat-view';
 import { ChatInput } from './components/chat-input';
 import { Banner } from './components/banner';
 import type { TodoItem } from '@/middlewares/todo-list';
+import {
+    assessRisk,
+    getCategoryLabel,
+    getLevelColor,
+    getLevelIcon,
+    type DangerAssessment,
+} from '@/safety/danger-engine';
 
 interface ContextSummary {
     tokens: number;
@@ -39,11 +55,30 @@ function mergeToolCallChunks(chunks: ToolCallChunk[]): ToolCall[] {
     return Object.values(merged).map(
         (tc): ToolCall => ({
             name: tc.name,
-            args: (() => { try { return JSON.parse(tc.args); } catch { return {}; } })(),
+            args: (() => {
+                try {
+                    return JSON.parse(tc.args);
+                } catch {
+                    return {};
+                }
+            })(),
             id: tc.id || undefined,
             type: 'tool_call' as const,
         }),
     );
+}
+
+interface ActionRequest {
+    name: string;
+    args: { command?: string };
+}
+
+interface InterruptInfo {
+    description: string;
+    tool: string;
+    decisionCount: number;
+    assessment: DangerAssessment;
+    actionRequests: ActionRequest[];
 }
 
 export const App = () => {
@@ -52,13 +87,20 @@ export const App = () => {
     const [streamingContent, setStreamingContent] = useState('');
     const [todos, setTodos] = useState<TodoItem[]>([]);
     const [contextSummary, setContextSummary] = useState<ContextSummary | null>(null);
-    const [interruptInfo, setInterruptInfo] = useState<{
-        description: string;
-        tool: string;
-        decisionCount: number;
-    } | null>(null);
+    const [interruptInfo, setInterruptInfo] = useState<InterruptInfo | null>(null);
+    const [criticalCooldown, setCriticalCooldown] = useState(0);
 
     const [agent, setAgent] = useState<CodingAgent | null>(null);
+
+    // critical 倒计时
+    useEffect(() => {
+        if (criticalCooldown > 0) {
+            const timer = setTimeout(() => {
+                setCriticalCooldown((prev) => prev - 1);
+            }, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [criticalCooldown]);
 
     useEffect(() => {
         const initAgent = async () => {
@@ -126,50 +168,92 @@ export const App = () => {
                 }
                 // HumanMessage 跳过 — 在调用 runAgent 之前已添加到 UI
             }
-
             // 提交残余草稿（本轮最终 AI 回复）
             commitDraft();
 
-            // 检查是否有中断（HITL）
+            // ─── HITL 中断处理 + 分级风险评估 ───
             const state: StateSnapshot = await agent.getState({ configurable: { thread_id: '1' } });
             const stateValues = state.values as Record<string, unknown>;
-            const tasks = stateValues.tasks as Array<{ interrupts?: Array<{ value: unknown }> }> | undefined;
-            if (tasks && tasks.length > 0 && tasks[0].interrupts && tasks[0].interrupts.length > 0) {
-                const interruptValue = tasks[0].interrupts[0].value as {
-                    actionRequests?: Array<{ name: string; args: { command?: string } }>;
-                } | undefined;
-                const actionRequests = Array.isArray(interruptValue?.actionRequests)
+            const tasks = stateValues.tasks as
+                | Array<{ interrupts?: Array<{ value: unknown }> }>
+                | undefined;
+            if (
+                tasks &&
+                tasks.length > 0 &&
+                tasks[0].interrupts &&
+                tasks[0].interrupts.length > 0
+            ) {
+                const interruptValue = tasks[0].interrupts[0].value as
+                    | {
+                          actionRequests?: ActionRequest[];
+                      }
+                    | undefined;
+                const actionRequests: ActionRequest[] = Array.isArray(
+                    interruptValue?.actionRequests,
+                )
                     ? interruptValue.actionRequests
                     : [];
                 const decisionCount = Math.max(actionRequests.length, 1);
 
-                let isDangerous = false;
+                // 对 bash 命令进行分级风险评估
+                let assessment: DangerAssessment = {
+                    level: 'safe',
+                    score: 0,
+                    matchedRules: [],
+                    description: null,
+                    category: null,
+                };
+
                 for (const action of actionRequests) {
                     if (action.name === 'bash') {
                         const command = action.args.command;
-                        if (command && /(^|[;&|\s])(rm|rmdir)(\s|$)/.test(command)) {
-                            isDangerous = true;
+                        if (command) {
+                            assessment = assessRisk(command);
                             break;
                         }
                     }
                 }
 
-                if (isDangerous) {
+                if (assessment.level === 'safe') {
+                    // 安全：直接放行
+                    await autoResume(decisionCount);
+                } else if (assessment.level === 'warning') {
+                    // 低风险：静默记录，短暂提示后自动执行
                     setInterruptInfo({
-                        description: 'Tool execution pending approval (Dangerous Command)',
+                        description: `Low-risk command: ${assessment.description}`,
                         tool: 'bash',
                         decisionCount,
+                        assessment,
+                        actionRequests,
                     });
-                } else {
-                    // 自动批准安全命令
+                    await new Promise((r) => setTimeout(r, 1200));
+                    setInterruptInfo(null);
                     await autoResume(decisionCount);
+                } else {
+                    // dangerous / critical：显示审批 UI
+                    setInterruptInfo({
+                        description:
+                            assessment.level === 'critical'
+                                ? 'CRITICAL: This command could cause irreversible damage'
+                                : `Tool execution pending approval (risk: ${assessment.score})`,
+                        tool: 'bash',
+                        decisionCount,
+                        assessment,
+                        actionRequests,
+                    });
+
+                    if (assessment.level === 'critical') {
+                        setCriticalCooldown(3);
+                    }
                 }
             }
 
             // 从 agent state 同步完整消息列表到 UI，补全通过中间件 Command
             // （如 todo_write）直接写入 state 而未出现在 stream 中的 ToolMessage。
             // 否则下轮对话传入的 history 缺少 ToolMessage 会导致 API 400 错误。
-            const finalState: StateSnapshot = await agent.getState({ configurable: { thread_id: '1' } });
+            const finalState: StateSnapshot = await agent.getState({
+                configurable: { thread_id: '1' },
+            });
             const finalValues = finalState.values as Record<string, unknown>;
             if (Array.isArray(finalValues.messages)) {
                 // 过滤掉 SystemMessage（摘要、prompt 等），只保留用户可见的会话消息
@@ -203,18 +287,32 @@ export const App = () => {
     const handleResume = async (decision: string) => {
         const decisionCount = interruptInfo?.decisionCount ?? 1;
         setInterruptInfo(null);
+        setCriticalCooldown(0);
+
+        // 构建 decisions：reject 时用 edit 把危险命令替换成无害 echo，
+        // 绕过 langchain v1.4.2 HITL 中间件的已知 bug：
+        // 当 AIMessage 同时包含 bash 和自动放行的工具调用时，reject 路径
+        // 会把自动放行的 tool_call 保留但不生成 ToolMessage → API 400
+        const decisions = Array.from({ length: decisionCount }, (_, i) => {
+            if (decision === 'reject') {
+                return {
+                    type: 'edit' as const,
+                    editedAction: {
+                        name: 'bash',
+                        args: { command: 'echo "[SAFETY] User rejected this command"' },
+                    },
+                };
+            }
+            return { type: decision as 'approve' };
+        });
+
         await runAgent(
             new Command({
-                resume: {
-                    decisions: Array.from({ length: decisionCount }, () => ({
-                        type: decision,
-                    })),
-                },
+                resume: { decisions },
             }),
         );
     };
 
-    // 自动恢复执行（批准安全命令）
     const autoResume = async (decisionCount = 1) => {
         await runAgent(
             new Command({
@@ -246,23 +344,99 @@ export const App = () => {
                     contextSummary={contextSummary}
                 />
                 {interruptInfo ? (
+                    /* ── 审批 UI ── */
                     <Box
                         flexDirection="column"
-                        borderColor="yellow"
+                        borderColor={getLevelColor(interruptInfo.assessment.level)}
                         borderStyle="round"
                         padding={1}
                     >
-                        <Text color="yellow" bold>
-                            Approval required
+                        <Text color={getLevelColor(interruptInfo.assessment.level)} bold>
+                            {getLevelIcon(interruptInfo.assessment.level)}{' '}
+                            {interruptInfo.assessment.level === 'critical'
+                                ? 'CRITICAL Command'
+                                : interruptInfo.assessment.level === 'dangerous'
+                                  ? 'Dangerous Command'
+                                  : 'Command Warning'}
                         </Text>
-                        <Text>A command needs your confirmation before it runs.</Text>
-                        <SelectInput
-                            items={[
-                                { label: 'Approve (Yes)', value: 'approve' },
-                                { label: 'Reject (No)', value: 'reject' },
-                            ]}
-                            onSelect={(item) => handleResume(item.value)}
-                        />
+
+                        {/* 命令内容 */}
+                        <Box marginTop={1}>
+                            <Text color="gray">Command: </Text>
+                            <Text>
+                                {interruptInfo.actionRequests[0]?.args?.command ?? '(unknown)'}
+                            </Text>
+                        </Box>
+
+                        {/* 风险详情 */}
+                        {interruptInfo.assessment.description && (
+                            <Box>
+                                <Text color="gray">Risk: </Text>
+                                <Text color={getLevelColor(interruptInfo.assessment.level)}>
+                                    {interruptInfo.assessment.description}
+                                </Text>
+                            </Box>
+                        )}
+                        {interruptInfo.assessment.category && (
+                            <Box>
+                                <Text color="gray">Category: </Text>
+                                <Text>{getCategoryLabel(interruptInfo.assessment.category)}</Text>
+                            </Box>
+                        )}
+                        <Box>
+                            <Text color="gray">Risk score: </Text>
+                            <Text color={getLevelColor(interruptInfo.assessment.level)}>
+                                {interruptInfo.assessment.score}/100
+                            </Text>
+                        </Box>
+
+                        {/* critical 额外警告 + 倒计时 */}
+                        {interruptInfo.assessment.level === 'critical' && (
+                            <Box marginTop={1} flexDirection="column">
+                                <Text color="red" bold>
+                                    ⛔ This command could cause irreversible system damage.
+                                </Text>
+                                {criticalCooldown > 0 && (
+                                    <Text color="red">
+                                        Please wait {criticalCooldown}s before approving...
+                                    </Text>
+                                )}
+                            </Box>
+                        )}
+
+                        <Box marginTop={1}>
+                            <SelectInput
+                                items={(() => {
+                                    const items: Array<{ label: string; value: string }> = [];
+
+                                    if (
+                                        interruptInfo.assessment.level === 'critical' &&
+                                        criticalCooldown > 0
+                                    ) {
+                                        items.push({
+                                            label: `Approve (wait ${criticalCooldown}s...)`,
+                                            value: 'approve',
+                                        });
+                                    } else {
+                                        items.push({ label: 'Approve (Yes)', value: 'approve' });
+                                    }
+
+                                    items.push({ label: 'Reject (No)', value: 'reject' });
+                                    return items;
+                                })()}
+                                onSelect={(item) => {
+                                    if (
+                                        item.value === 'approve' &&
+                                        interruptInfo.assessment.level === 'critical' &&
+                                        criticalCooldown > 0
+                                    ) {
+                                        // 冷却中不允许 approve
+                                        return;
+                                    }
+                                    handleResume(item.value);
+                                }}
+                            />
+                        </Box>
                     </Box>
                 ) : (
                     <ChatInput onSubmit={handleSubmit} />
