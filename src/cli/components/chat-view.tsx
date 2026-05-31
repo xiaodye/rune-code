@@ -3,13 +3,24 @@ import { Box, Text } from 'ink';
 import { BaseMessage, HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import Spinner from 'ink-spinner';
 import { TodoListView } from './todo-list-view';
+import { MarkdownText } from './markdown-text';
 import { TodoItem } from '@/middlewares/todo-list';
+import { formatTokens } from '@/utils/token-counter';
 import { project } from '@/project';
+
+interface ContextSummary {
+    tokens: number;
+    usage: number;
+    messageCount: number;
+    label: string;
+}
 
 interface ChatViewProps {
     messages: BaseMessage[];
     todos: TodoItem[];
     isGenerating: boolean;
+    streamingContent?: string;
+    contextSummary?: ContextSummary | null;
 }
 
 const MAX_INLINE_LENGTH = 96;
@@ -57,10 +68,10 @@ function toolLabel(name: string): string {
     const labels: Record<string, string> = {
         bash: '执行命令',
         grep: '搜索代码',
-        ls: '读取目录',
-        tree: '查看项目树',
+        ls: '查看目录',
+        tree: '查看文件树',
         text_editor: '编辑器',
-        todo_write: '更新 TodoList',
+        todo_write: 'TodoList',
     };
 
     return labels[name] ?? '调用工具';
@@ -124,11 +135,12 @@ function isErrorToolMessage(msg: ToolMessage): boolean {
     return typeof msg.content === 'string' && /^`{0,3}\s*error[:\s]/i.test(msg.content.trim());
 }
 
-export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], isGenerating }) => {
-    return (
-        <Box flexDirection="column" paddingX={1} flexGrow={1}>
-            <Box flexDirection="column" flexGrow={1}>
-                {messages.map((msg, index) => {
+export const ChatView: React.FC<ChatViewProps> = memo(
+    ({ messages, todos = [], isGenerating, streamingContent, contextSummary }) => {
+        return (
+            <Box flexDirection="column" paddingX={1} flexGrow={1}>
+                <Box flexDirection="column" flexGrow={1}>
+                    {messages.map((msg, index) => {
                     if (HumanMessage.isInstance(msg)) {
                         const content = messageText(msg.content);
 
@@ -149,7 +161,7 @@ export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], i
                                     <Text color="green" bold>
                                         Rune
                                     </Text>
-                                    <Text wrap="wrap">{content}</Text>
+                                    <MarkdownText content={content} />
                                 </Box>
                             );
                         }
@@ -165,25 +177,25 @@ export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], i
                         return (
                             <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
                                 {visibleToolCalls.map((toolCall) => {
-	                                    const detail = toolDetail(toolCall.name, toolCall.args ?? {});
-	                                    return (
-	                                        <Box key={toolCall.id ?? toolCall.name} flexDirection="row">
-	                                            <Box width={3}>
-	                                                <Text color="cyan" bold>
-	                                                    {toolIcon(toolCall.name)}
-	                                                </Text>
-	                                            </Box>
-	                                            <Text color="gray">{toolLabel(toolCall.name)} </Text>
+                                    const detail = toolDetail(toolCall.name, toolCall.args ?? {});
+                                    return (
+                                        <Box key={toolCall.id ?? toolCall.name} flexDirection="row">
+                                            <Box width={3}>
+                                                <Text color="cyan" bold>
+                                                    {toolIcon(toolCall.name)}
+                                                </Text>
+                                            </Box>
+                                            <Text color="gray">{toolLabel(toolCall.name)} </Text>
                                             <Text color="magenta" bold>
                                                 [{toolCall.name}]
                                             </Text>
-	                                            {detail ? (
-	                                                <Text color="gray" wrap="truncate-end">
-	                                                    {' '}
-	                                                    {detail}
-	                                                </Text>
-	                                            ) : null}
-	                                        </Box>
+                                            {detail ? (
+                                                <Text color="gray" wrap="truncate-end">
+                                                    {' '}
+                                                    {detail}
+                                                </Text>
+                                            ) : null}
+                                        </Box>
                                     );
                                 })}
                             </Box>
@@ -206,10 +218,62 @@ export const ChatView: React.FC<ChatViewProps> = memo(({ messages, todos = [], i
                 })}
 
                 {todos.length !== 0 && <TodoListView todos={todos} />}
-                {isGenerating && (
+                {streamingContent ? (
+                    <Box flexDirection="column" marginTop={1}>
+                        <Text color="green" bold>
+                            Rune
+                        </Text>
+                        <MarkdownText content={streamingContent} />
+                        <Text color="green">▊</Text>
+                    </Box>
+                ) : isGenerating ? (
                     <Box flexDirection="column" marginTop={1}>
                         <Text color="gray">
                             <Spinner type="dots" /> Working
+                        </Text>
+                    </Box>
+                ) : null}
+
+                {/* 上下文用量指示器 */}
+                {contextSummary && (
+                    <Box flexDirection="row" marginTop={1} alignItems="center">
+                        <Text color="gray" dimColor>
+                            Context:{' '}
+                        </Text>
+                        <Text
+                            color={
+                                contextSummary.label === 'critical'
+                                    ? 'red'
+                                    : contextSummary.label === 'heavy'
+                                      ? 'yellow'
+                                      : 'gray'
+                            }
+                        >
+                            {formatTokens(contextSummary.tokens)}t
+                        </Text>
+                        <Text color="gray" dimColor>
+                            {' · '}
+                            {contextSummary.messageCount} msgs
+                            {' · '}
+                        </Text>
+                        {/* 简易进度条 */}
+                        <Text
+                            color={
+                                contextSummary.usage > 0.85
+                                    ? 'red'
+                                    : contextSummary.usage > 0.6
+                                      ? 'yellow'
+                                      : 'green'
+                            }
+                        >
+                            {'█'.repeat(Math.max(1, Math.ceil(contextSummary.usage * 10)))}
+                        </Text>
+                        <Text color="gray" dimColor>
+                            {'░'.repeat(
+                                Math.max(0, 10 - Math.ceil(contextSummary.usage * 10)),
+                            )}
+                            {' '}
+                            {Math.round(contextSummary.usage * 100)}%
                         </Text>
                     </Box>
                 )}
