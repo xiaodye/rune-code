@@ -4,6 +4,8 @@ import { marked, Token, Tokens } from 'marked';
 
 interface MarkdownTextProps {
     content: string;
+    /** 渲染在内容末尾的 React 节点，用于流式光标等场景 */
+    trailing?: React.ReactNode;
 }
 
 /** 展平后的原子样式段 — 每个段渲染为独立的 <Text>，零嵌套以避免 Ink 样式丢失 bug */
@@ -308,9 +310,9 @@ function renderBlock(token: Token, key: number): React.ReactNode {
  * 每个段渲染为独立的 <Text>，放入 <Box flexWrap="wrap"> 中。
  * 这避免了 Ink 中 <Text wrap="wrap"> 嵌套 <Text bold> 时样式丢失的已知问题。
  */
-export const MarkdownText: React.FC<MarkdownTextProps> = ({ content }) => {
+export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, trailing }) => {
     if (!content?.trim()) {
-        return null;
+        return trailing ? <Text>{trailing}</Text> : null;
     }
 
     let tokens: Token[];
@@ -328,6 +330,7 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content }) => {
     return (
         <Box flexDirection="column">
             {tokens.map((token, i) => renderBlock(token, i))}
+            {trailing}
         </Box>
     );
 };
