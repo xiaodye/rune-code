@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { BaseMessage, HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import Spinner from 'ink-spinner';
 import { TodoListView } from './todo-list-view';
-import { MarkdownText } from './markdown-text';
+import { Markdown } from './markdown';
 import { TodoItem } from '@/middlewares/todo-list';
 import { formatTokens } from '@/utils/token-counter';
 import { project } from '@/project';
@@ -141,145 +141,152 @@ export const ChatView: React.FC<ChatViewProps> = memo(
             <Box flexDirection="column" paddingX={1} flexGrow={1}>
                 <Box flexDirection="column" flexGrow={1}>
                     {messages.map((msg, index) => {
-                    if (HumanMessage.isInstance(msg)) {
-                        const content = messageText(msg.content);
+                        if (HumanMessage.isInstance(msg)) {
+                            const content = messageText(msg.content);
 
-                        return (
-                            <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
-                                <Text color="cyan" bold>
-                                    You
-                                </Text>
-                                <Text wrap="wrap">{content}</Text>
-                            </Box>
-                        );
-                    } else if (AIMessage.isInstance(msg)) {
-                        const content = messageText(msg.content);
-
-                        if (content) {
                             return (
                                 <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
-                                    <Text color="green" bold>
-                                        Rune
+                                    <Text color="cyan" bold>
+                                        You
                                     </Text>
-                                    <MarkdownText content={content} />
+                                    <Text wrap="wrap">{content}</Text>
+                                </Box>
+                            );
+                        } else if (AIMessage.isInstance(msg)) {
+                            const content = messageText(msg.content);
+
+                            if (content) {
+                                return (
+                                    <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
+                                        <Text color="green" bold>
+                                            Rune
+                                        </Text>
+                                        <Markdown content={content} />
+                                    </Box>
+                                );
+                            }
+
+                            const visibleToolCalls =
+                                msg.tool_calls?.filter(
+                                    (toolCall) => toolCall.name !== 'todo_write',
+                                ) ?? [];
+
+                            if (visibleToolCalls.length === 0) {
+                                return null;
+                            }
+
+                            return (
+                                <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
+                                    {visibleToolCalls.map((toolCall) => {
+                                        const detail = toolDetail(
+                                            toolCall.name,
+                                            toolCall.args ?? {},
+                                        );
+                                        return (
+                                            <Box
+                                                key={toolCall.id ?? toolCall.name}
+                                                flexDirection="row"
+                                            >
+                                                <Box width={3}>
+                                                    <Text color="cyan" bold>
+                                                        {toolIcon(toolCall.name)}
+                                                    </Text>
+                                                </Box>
+                                                <Text color="gray">
+                                                    {toolLabel(toolCall.name)}{' '}
+                                                </Text>
+                                                <Text color="magenta" bold>
+                                                    [{toolCall.name}]
+                                                </Text>
+                                                {detail ? (
+                                                    <Text color="gray" wrap="truncate-end">
+                                                        {' '}
+                                                        {detail}
+                                                    </Text>
+                                                ) : null}
+                                            </Box>
+                                        );
+                                    })}
+                                </Box>
+                            );
+                        } else if (ToolMessage.isInstance(msg)) {
+                            if (!isErrorToolMessage(msg)) {
+                                return null;
+                            }
+
+                            return (
+                                <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
+                                    <Text color="red">
+                                        {msg.name ? `${msg.name} failed` : 'Tool failed'}:{' '}
+                                        {compact(msg.content)}
+                                    </Text>
                                 </Box>
                             );
                         }
+                        return null;
+                    })}
 
-                        const visibleToolCalls =
-                            msg.tool_calls?.filter((toolCall) => toolCall.name !== 'todo_write') ??
-                            [];
+                    {todos.length !== 0 && <TodoListView todos={todos} />}
+                    {streamingContent ? (
+                        <Box flexDirection="column" marginTop={1}>
+                            <Text color="green" bold>
+                                Rune
+                            </Text>
+                            <Markdown
+                                content={streamingContent}
+                                trailing={<Text color="green">▊</Text>}
+                            />
+                        </Box>
+                    ) : isGenerating ? (
+                        <Box flexDirection="column" marginTop={1}>
+                            <Text color="gray">
+                                <Spinner type="dots" /> Working
+                            </Text>
+                        </Box>
+                    ) : null}
 
-                        if (visibleToolCalls.length === 0) {
-                            return null;
-                        }
-
-                        return (
-                            <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
-                                {visibleToolCalls.map((toolCall) => {
-                                    const detail = toolDetail(toolCall.name, toolCall.args ?? {});
-                                    return (
-                                        <Box key={toolCall.id ?? toolCall.name} flexDirection="row">
-                                            <Box width={3}>
-                                                <Text color="cyan" bold>
-                                                    {toolIcon(toolCall.name)}
-                                                </Text>
-                                            </Box>
-                                            <Text color="gray">{toolLabel(toolCall.name)} </Text>
-                                            <Text color="magenta" bold>
-                                                [{toolCall.name}]
-                                            </Text>
-                                            {detail ? (
-                                                <Text color="gray" wrap="truncate-end">
-                                                    {' '}
-                                                    {detail}
-                                                </Text>
-                                            ) : null}
-                                        </Box>
-                                    );
-                                })}
-                            </Box>
-                        );
-                    } else if (ToolMessage.isInstance(msg)) {
-                        if (!isErrorToolMessage(msg)) {
-                            return null;
-                        }
-
-                        return (
-                            <Box key={msg.id ?? index} flexDirection="column" marginTop={1}>
-                                <Text color="red">
-                                    {msg.name ? `${msg.name} failed` : 'Tool failed'}:{' '}
-                                    {compact(msg.content)}
-                                </Text>
-                            </Box>
-                        );
-                    }
-                    return null;
-                })}
-
-                {todos.length !== 0 && <TodoListView todos={todos} />}
-                {streamingContent ? (
-                    <Box flexDirection="column" marginTop={1}>
-                        <Text color="green" bold>
-                            Rune
-                        </Text>
-                        <MarkdownText
-                            content={streamingContent}
-                            trailing={<Text color="green">▊</Text>}
-                        />
-                    </Box>
-                ) : isGenerating ? (
-                    <Box flexDirection="column" marginTop={1}>
-                        <Text color="gray">
-                            <Spinner type="dots" /> Working
-                        </Text>
-                    </Box>
-                ) : null}
-
-                {/* 上下文用量指示器 */}
-                {contextSummary && (
-                    <Box flexDirection="row" marginTop={1} alignItems="center">
-                        <Text color="gray" dimColor>
-                            Context:{' '}
-                        </Text>
-                        <Text
-                            color={
-                                contextSummary.label === 'critical'
-                                    ? 'red'
-                                    : contextSummary.label === 'heavy'
-                                      ? 'yellow'
-                                      : 'gray'
-                            }
-                        >
-                            {formatTokens(contextSummary.tokens)}t
-                        </Text>
-                        <Text color="gray" dimColor>
-                            {' · '}
-                            {contextSummary.messageCount} msgs
-                            {' · '}
-                        </Text>
-                        {/* 简易进度条 */}
-                        <Text
-                            color={
-                                contextSummary.usage > 0.85
-                                    ? 'red'
-                                    : contextSummary.usage > 0.6
-                                      ? 'yellow'
-                                      : 'green'
-                            }
-                        >
-                            {'█'.repeat(Math.max(1, Math.ceil(contextSummary.usage * 10)))}
-                        </Text>
-                        <Text color="gray" dimColor>
-                            {'░'.repeat(
-                                Math.max(0, 10 - Math.ceil(contextSummary.usage * 10)),
-                            )}
-                            {' '}
-                            {Math.round(contextSummary.usage * 100)}%
-                        </Text>
-                    </Box>
-                )}
+                    {/* 上下文用量指示器 */}
+                    {contextSummary && (
+                        <Box flexDirection="row" marginTop={1} alignItems="center">
+                            <Text color="gray" dimColor>
+                                Context:{' '}
+                            </Text>
+                            <Text
+                                color={
+                                    contextSummary.label === 'critical'
+                                        ? 'red'
+                                        : contextSummary.label === 'heavy'
+                                          ? 'yellow'
+                                          : 'gray'
+                                }
+                            >
+                                {formatTokens(contextSummary.tokens)}t
+                            </Text>
+                            <Text color="gray" dimColor>
+                                {' · '}
+                                {contextSummary.messageCount} msgs
+                                {' · '}
+                            </Text>
+                            {/* 简易进度条 */}
+                            <Text
+                                color={
+                                    contextSummary.usage > 0.85
+                                        ? 'red'
+                                        : contextSummary.usage > 0.6
+                                          ? 'yellow'
+                                          : 'green'
+                                }
+                            >
+                                {'█'.repeat(Math.max(1, Math.ceil(contextSummary.usage * 10)))}
+                            </Text>
+                            <Text color="gray" dimColor>
+                                {'░'.repeat(Math.max(0, 10 - Math.ceil(contextSummary.usage * 10)))}{' '}
+                                {Math.round(contextSummary.usage * 100)}%
+                            </Text>
+                        </Box>
+                    )}
+                </Box>
             </Box>
-        </Box>
-    );
-});
+        );
+    },
+);
