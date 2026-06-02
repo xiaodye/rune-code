@@ -198,7 +198,7 @@ Context: 22.4Kt · 14 msgs · ███████░░░ 70%
 // 优先级：LLM_CONTEXT_WINDOW 环境变量 > 兜底 128K
 export function getContextWindow(): number;
 
-// 使用 LangChain 内置的近似算法 (字符数 / 4)
+// 使用 js-tiktoken (cl100k_base) 精确计数
 export function estimateTokens(messages: BaseMessage[]): number;
 
 // 估算使用率 (0-1)，内部调用 getContextWindow()
@@ -219,11 +219,11 @@ export function getContextSummary(messages: BaseMessage[]): ContextSummary;
 
 改为 `LLM_CONTEXT_WINDOW` 环境变量显式配置，换模型时同步改一行 `.env` 即可。不配置则兜底 128K。
 
-使用 `/4` 近似而不是 `tiktoken` 精确计算的原因：
+使用 `js-tiktoken`（cl100k_base BPE 编码）精确计数，对中英文混合场景精度远优于字符数/4 近似。
 
-- 不需要额外的 tokenizer 依赖
-- 对中文友好（`字符/4` ≈ `字符*0.25`，中文约 1.5-2 token/字，英文约 0.25-0.3 token/字）
-- 摘要中间件内部使用自己的精确 token 计数，`/4` 仅用于 UI 展示
+- 不需要 native 绑定，纯 JS 实现
+- encoder 懒加载单例，避免重复初始化
+- 每条消息额外计 4 tokens（role/separator overhead）
 
 ## 7. 边界情况
 
