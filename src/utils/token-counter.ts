@@ -83,9 +83,9 @@ export function getContextSummary(
     const usage = Math.min(tokens / window, 1);
 
     let label: string;
-    if (usage < 0.3) label = 'light';
-    else if (usage < 0.6) label = 'moderate';
-    else if (usage < 0.85) label = 'heavy';
+    if (usage < 0.4) label = 'light';
+    else if (usage < 0.8) label = 'moderate';
+    else if (usage < 0.9) label = 'heavy';
     else label = 'critical';
 
     return {

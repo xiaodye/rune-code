@@ -68,13 +68,13 @@ export async function createCodingAgent() {
             summarizationMiddleware({
                 model,
                 trigger: [
-                    // 多轮对话：达到 60% 窗口 + 10 条以上消息时触发
-                    { fraction: 0.6, messages: 10 },
-                    // 少量超长消息：达到 85% 窗口 + 4 条以上消息时紧急触发
-                    { fraction: 0.85, messages: 4 },
+                    // 多轮对话：达到 80% 窗口 + 6 条以上消息时触发
+                    { fraction: 0.8, messages: 6 },
+                    // 少量超长消息：达到 90% 窗口 + 3 条以上消息时紧急触发
+                    { fraction: 0.9, messages: 3 },
                 ],
-                // 保留最近 20% 窗口的原文（128K → ~25K，200K → ~40K）
-                keep: { fraction: 0.2 },
+                // 保留最近 25% 窗口的原文（128K → ~32K，200K → ~50K）
+                keep: { fraction: 0.25 },
             }),
             humanInTheLoopMiddleware({
                 interruptOn: {

@@ -22,9 +22,9 @@ Agent 的对话历史是无限增长的：
 ```
 ┌──────────────────────────────────────────────────┐
 │ Layer 1: 摘要中间件 (summarizationMiddleware)      │
-│   触发: (60% 窗口 AND 10+ msgs) OR (85% AND 4+ msgs) │
+│   触发: (80% 窗口 AND 6+ msgs) OR (90% AND 3+ msgs)  │
 │   动作: 压缩旧消息为摘要                             │
-│   保留: 最近 20% 窗口的 token 数（二分查找 cutoff）  │
+│   保留: 最近 25% 窗口的 token 数（二分查找 cutoff）  │
 └──────────────────────┬───────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────┐
@@ -48,15 +48,15 @@ Agent 的对话历史是无限增长的：
 使用 `fraction`（上下文窗口占比）而非硬编码 token 数，自适应不同模型：
 
 ```
-触发 = (≥60% 窗口 AND ≥10 条消息) OR (≥85% 窗口 AND ≥4 条消息)
+触发 = (≥80% 窗口 AND ≥6 条消息) OR (≥90% 窗口 AND ≥3 条消息)
 ```
 
-| 模型             | Context | 触发 A (60% + 10msgs) | 触发 B (85% + 4msgs) |
+| 模型             | Context | 触发 A (80% + 6msgs) | 触发 B (90% + 3msgs) |
 | ---------------- | ------- | --------------------- | -------------------- |
-| DeepSeek V4 Flash | 1M     | ~600K tokens          | ~850K tokens         |
-| GPT-4o           | 128K    | ~76.8K tokens         | ~108.8K tokens       |
-| Claude Sonnet    | 200K    | ~120K tokens          | ~170K tokens         |
-| Doubao Lite      | ~32K    | ~19.2K tokens          | ~27.2K tokens        |
+| DeepSeek V4 Flash | 1M     | ~800K tokens          | ~900K tokens         |
+| GPT-4o           | 128K    | ~102.4K tokens        | ~115.2K tokens       |
+| Claude Sonnet    | 200K    | ~160K tokens          | ~180K tokens         |
+| Doubao Lite      | ~32K    | ~25.6K tokens          | ~28.8K tokens        |
 
 **为什么用 `fraction` 而非 `tokens`？**
 
@@ -68,7 +68,7 @@ Agent 的对话历史是无限增长的：
 
 防止误触发：用户粘贴一段长代码（单条 HumanMessage 就几万 tokens），但对话刚开始。此时不应该摘要——模型需要这段代码的完整上下文。加上 `messages` 条件确保只有真正的"长对话"才触发。
 
-**阈值设计参考**：Claude Code 在 ~80% 窗口触发，OpenAI Codex 在 ~95% 触发。我们取 60% 作为常规触发（多轮对话），85% 作为紧急触发（少量超长消息），在足够余量和不过度压缩之间取平衡。
+**阈值设计参考**：Claude Code 在 ~80% 窗口触发，OpenAI Codex 在 ~95% 触发。我们取 80% 作为常规触发（对齐 Claude Code，充分利用上下文窗口），90% 作为紧急触发（少量超长消息），尽量延迟压缩以保留更多原文。
 
 ### 3.2 配置
 
@@ -84,10 +84,10 @@ Object.defineProperty(model, 'profile', {
 summarizationMiddleware({
     model,
     trigger: [
-        { fraction: 0.6, messages: 10 },  // 多轮对话，60% 窗口
-        { fraction: 0.85, messages: 4 },  // 少量超长消息，85% 窗口
+        { fraction: 0.8, messages: 6 },  // 多轮对话，80% 窗口
+        { fraction: 0.9, messages: 3 },  // 少量超长消息，90% 窗口
     ],
-    keep: { fraction: 0.2 }, // 保留最近 20% 窗口的原文
+    keep: { fraction: 0.25 }, // 保留最近 25% 窗口的原文
 });
 ```
 
@@ -118,19 +118,19 @@ langchain 内置的 `getModelContextSize` 只覆盖 OpenAI/Anthropic 模型。�
 
 ### 3.5 设计决策
 
-**为什么 keep 用 `fraction: 0.2` 而非固定消息数？**
+**为什么 keep 用 `fraction: 0.25` 而非固定消息数？**
 
 - `keep: { messages: 24 }` 在 1M 对话中 24 条可能不到 50K tokens，保留太少
 - 在 32K 对话中 24 条可能已经满了，保留太多
-- `keep: { fraction: 0.2 }` 在不同模型上自动缩放：1M → 200K 保留，128K → 25.6K 保留，32K → 6.4K 保留
+- `keep: { fraction: 0.25 }` 在不同模型上自动缩放：1M → 250K 保留，128K → 32K 保留，32K → 8K 保留
 - 内部使用二分查找在消息列表中精确定位 token 数量的 cutoff 点
 
 **为什么用双触发器而不是单阈值？**
 
-单阈值 `fraction > 0.6` 的问题：
+单阈值 `fraction > 0.8` 的问题：
 
 - 如果用户发长段代码粘贴，占比瞬间飙升但消息数很少 → 此时触发摘要反而干扰当前任务
-- 触发 B（0.85 + 4msgs）应对这种场景：即使消息数少，超高的 token 占比也需要处理
+- 触发 B（0.9 + 3msgs）应对这种场景：即使消息数少，超高的 token 占比也需要处理
 - 双触发器通过 AND 关系避免过早触发，同时覆盖边缘场景
 
 **为什么用主模型做摘要而不是用更便宜的模型？**

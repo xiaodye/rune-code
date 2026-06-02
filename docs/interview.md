@@ -82,7 +82,7 @@ Agent 对话历史无限增长，最终超过 LLM context window 导致 API 400�
 
 1. **langchain 内置的 `getModelContextSize` 只覆盖 OpenAI/Anthropic 模型**，对 DeepSeek 返回兜底值 4097，导致 `fraction: 0.15` 实际触发在 4097×0.15=614 tokens——完全错误。解决方案：用 `Object.defineProperty` 重写模型实例的 `profile` getter，注入正确的 `maxInputTokens`（来自 `LLM_CONTEXT_WINDOW` 环境变量，兜底 128K）。
 
-2. **阈值参考业界标准重新设计**：Claude Code 在 ~80% 窗口触发，OpenAI Codex 在 ~95% 触发。采用双触发器：`(fraction > 0.6 AND messages > 10) OR (fraction > 0.85 AND messages > 4)`。keep 也用 `fraction: 0.2` 保留最近 20% 窗口的原文，自适应不同模型。
+2. **阈值参考业界标准重新设计**：Claude Code 在 ~80% 窗口触发，OpenAI Codex 在 ~95% 触发。采用双触发器：`(fraction > 0.8 AND messages > 6) OR (fraction > 0.9 AND messages > 3)`。keep 也用 `fraction: 0.25` 保留最近 25% 窗口的原文，自适应不同模型。
 
 **前缀缓存布局**：`[System Prompt + Tools]` → `[Summary]` → `[Recent messages]`。静态放前（始终命中缓存），动态放后（缓存失效范围最小）。
 
@@ -232,7 +232,7 @@ A: 60+ 条结构化正则规则 × 6 大分类，每条 0-100 风险评分，取
 A: 第一版手写了 285 行 token → Ink 组件映射。后来发现 `marked-terminal` 和 Ink 其实可以共存——Ink 管终端布局的 ANSI 码（光标定位），marked-terminal 管文本样式的 ANSI 码（颜色/粗体），互不冲突。迁移后 285 行变 30 行，还免费获得了 ASCII 框线表格、语法高亮等手写版没覆盖的能力。唯一要注意的是 `marked-terminal@7.x` 的 peer dep 只声明支持 `marked@<16`，但实测兼容 `marked@18`。
 
 **Q: 上下文管理的 fraction 遇到什么问题？**
-A: langchain 内置的 `getModelContextSize` 只认识 OpenAI/Anthropic 模型，对 DeepSeek 返回兜底值 4097。`fraction: 0.15` 在 128K 模型上本应 19K 触发，实际变成 614 tokens 就触发。解决方案：用 `Object.defineProperty` 给模型实例注入正确的 `profile.maxInputTokens`，值来自 `LLM_CONTEXT_WINDOW` 环境变量（兜底 128K）。fraction 优势保留——换 200K 的 Claude 模型时 0.6 自动变成 120K 触发。
+A: langchain 内置的 `getModelContextSize` 只认识 OpenAI/Anthropic 模型，对 DeepSeek 返回兜底值 4097。`fraction: 0.8` 在 128K 模型上本应 102K 触发，实际变成 3277 tokens 就触发。解决方案：用 `Object.defineProperty` 给模型实例注入正确的 `profile.maxInputTokens`，值来自 `LLM_CONTEXT_WINDOW` 环境变量（兜底 128K）。fraction 优势保留——换 200K 的 Claude 模型时 0.8 自动变成 160K 触发。
 
 **Q: 怎么防止模型死循环？**
 A: 双重保护——`modelCallLimitMiddleware`（单次 25 次 LLM 调用上限）+ `recursionLimit: 50`（LangGraph 节点执行上限）。
