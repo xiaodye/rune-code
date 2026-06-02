@@ -1,4 +1,4 @@
-import { countTokensApproximately } from 'langchain';
+import { getEncoding, type Tiktoken } from 'js-tiktoken';
 import type { BaseMessage } from '@langchain/core/messages';
 
 /** 安全使用率阈值，超过此比例触发保护 */
@@ -6,6 +6,15 @@ const SAFE_USAGE_RATIO = 0.7;
 
 /** 未配置 LLM_CONTEXT_WINDOW 时的兜底上下文窗口大小 */
 const DEFAULT_CONTEXT_WINDOW = 128_000;
+
+let encoder: Tiktoken | null = null;
+
+function getEncoder(): Tiktoken {
+    if (!encoder) {
+        encoder = getEncoding('cl100k_base');
+    }
+    return encoder;
+}
 
 /**
  * 获取当前模型的上下文窗口大小。
@@ -27,10 +36,18 @@ export function getContextWindow(): number {
 
 /**
  * 估算消息列表的 token 数
- * 使用 LangChain 内置的近似算法（字符数 / 4）
  */
 export function estimateTokens(messages: BaseMessage[]): number {
-    return countTokensApproximately(messages);
+    const enc = getEncoder();
+    let total = 0;
+    for (const msg of messages) {
+        const content = typeof msg.content === 'string'
+            ? msg.content
+            : JSON.stringify(msg.content);
+        total += enc.encode(content).length;
+        total += 4; // message overhead (role, separators)
+    }
+    return total;
 }
 
 /**
