@@ -143,7 +143,7 @@ export const App = () => {
 
         try {
             const stream = await agent.stream(input, {
-                recursionLimit: 50,
+                recursionLimit: 80,
                 streamMode: 'messages',
                 configurable: { thread_id: '1' },
             });

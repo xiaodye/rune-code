@@ -22,10 +22,9 @@ Agent 的对话历史是无限增长的：
 ```
 ┌──────────────────────────────────────────────────┐
 │ Layer 1: 摘要中间件 (summarizationMiddleware)      │
-│   触发条件: tokens > 4000 && messages > 8         │
-│       或: tokens > 8000 && messages > 6          │
-│   动作: 压缩旧消息为 SystemMessage 摘要             │
-│   保留: 最近 20 条消息原文                          │
+│   触发: (80% 窗口 AND 6+ msgs) OR (90% AND 3+ msgs)  │
+│   动作: 压缩旧消息为摘要                             │
+│   保留: 最近 25% 窗口的 token 数（二分查找 cutoff）  │
 └──────────────────────┬───────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────┐
@@ -49,66 +48,90 @@ Agent 的对话历史是无限增长的：
 使用 `fraction`（上下文窗口占比）而非硬编码 token 数，自适应不同模型：
 
 ```
-触发 = (≥15% 窗口 AND ≥10 条消息) OR (≥25% 窗口 AND ≥6 条消息)
+触发 = (≥80% 窗口 AND ≥6 条消息) OR (≥90% 窗口 AND ≥3 条消息)
 ```
 
-| 模型          | Context | 触发 A (15% + 10msgs) | 触发 B (25% + 6msgs) |
-| ------------- | ------- | --------------------- | -------------------- |
-| GPT-4o        | 128K    | ~19K tokens           | ~32K tokens          |
-| DeepSeek V3   | 128K    | ~19K tokens           | ~32K tokens          |
-| Claude Sonnet | 200K    | ~30K tokens           | ~50K tokens          |
-| Doubao Lite   | ~32K    | ~4.8K tokens          | ~8K tokens           |
+| 模型             | Context | 触发 A (80% + 6msgs) | 触发 B (90% + 3msgs) |
+| ---------------- | ------- | --------------------- | -------------------- |
+| DeepSeek V4 Flash | 1M     | ~800K tokens          | ~900K tokens         |
+| GPT-4o           | 128K    | ~102.4K tokens        | ~115.2K tokens       |
+| Claude Sonnet    | 200K    | ~160K tokens          | ~180K tokens         |
+| Doubao Lite      | ~32K    | ~25.6K tokens          | ~28.8K tokens        |
 
 **为什么用 `fraction` 而非 `tokens`？**
 
-- `tokens: 4000` 在 128K 模型上只占 3%，触发过于频繁；在 8K 模型上占 50%，触发太迟
-- `fraction: 0.15` 随模型自动缩放，一次配置适用所有模型
+- `tokens: 40000` 在 128K 模型上占 31%，合理；在 1M 模型上只占 4%，触发太迟
+- `fraction: 0.6` 随模型自动缩放，一次配置适用所有模型
 - 调整阈值只需改比例，不用查模型文档
 
 **为什么每个触发器同时要求消息数（AND）？**
 
 防止误触发：用户粘贴一段长代码（单条 HumanMessage 就几万 tokens），但对话刚开始。此时不应该摘要——模型需要这段代码的完整上下文。加上 `messages` 条件确保只有真正的"长对话"才触发。
 
+**阈值设计参考**：Claude Code 在 ~80% 窗口触发，OpenAI Codex 在 ~95% 触发。我们取 80% 作为常规触发（对齐 Claude Code，充分利用上下文窗口），90% 作为紧急触发（少量超长消息），尽量延迟压缩以保留更多原文。
+
 ### 3.2 配置
 
 ```typescript
 // src/agents/coding-agent.ts
+// 1. 注入正确的上下文窗口（langchain 内置查表对非 OpenAI/Anthropic 模型返回 4097）
+const contextWindow = getContextWindow(); // LLM_CONTEXT_WINDOW env var or 128K
+Object.defineProperty(model, 'profile', {
+    get() { return { maxInputTokens: contextWindow }; },
+});
+
+// 2. fraction 依赖上述 profile.maxInputTokens 正确计算
 summarizationMiddleware({
-    model, // 复用主模型做摘要
+    model,
     trigger: [
-        { fraction: 0.15, messages: 10 }, // 多轮对话，15% 窗口
-        { fraction: 0.25, messages: 6 }, // 少量超长消息，25% 窗口
+        { fraction: 0.8, messages: 6 },  // 多轮对话，80% 窗口
+        { fraction: 0.9, messages: 3 },  // 少量超长消息，90% 窗口
     ],
-    keep: { messages: 24 }, // 保留最近 24 条原文
+    keep: { fraction: 0.25 }, // 保留最近 25% 窗口的原文
 });
 ```
 
-### 3.3 摘要执行流程
+### 3.3 profile 注入的必要性
+
+langchain 内置的 `getModelContextSize` 只覆盖 OpenAI/Anthropic 模型。对于 DeepSeek/豆包等模型，返回兜底值 **4097**。
+
+```
+无 profile 注入：fraction 0.6 × 4097 = 2,458 tokens 就触发（错误）
+有 profile 注入：fraction 0.6 × 1M = 600K tokens 才触发（正确）
+```
+
+`ChatOpenAI` 实例的 `profile` 是一个 getter，内部查 `@langchain/openai` 的 `PROFILES` 表（30+ 个 OpenAI 模型）。`Object.defineProperty` 覆盖这个 getter，注入正确的 `maxInputTokens`，值来自 `LLM_CONTEXT_WINDOW` 环境变量，兜底 128K。
+
+### 3.4 摘要执行流程
 
 ```
 1. middleware 在每个 model call 前检查 message 列表
 2. 如果满足 trigger 条件:
-   a. 从消息列表中取出超过 keep 范围的部分
-   b. 调用 LLM 生成摘要: "请总结以下对话的关键信息..."
-   c. 将摘要包装为 SystemMessage
-   d. 消息列表变为: [SystemPrompt, SummarySystemMessage, ...recent 20 messages]
+   a. 根据 keep.fraction 计算保留 token 数（如 0.2 × 128K = 25.6K tokens）
+   b. 用二分查找找到 cutoff 点，保证保留部分 ≤ 目标 token 数
+   c. cutoff 点落在 ToolMessage 上时，自动前移到对应的 AIMessage，保证 AI/Tool 消息对完整
+   d. 调用 LLM 生成摘要: "请总结以下对话的关键信息..."
+   e. 将摘要包装为 HumanMessage（标记 lc_source: "summarization"）
+   f. 消息列表变为: [SystemPrompt, SummaryMessage, ...preserved messages]
 3. 后续 model call 使用压缩后的消息列表
 ```
 
-### 3.4 设计决策
+### 3.5 设计决策
 
-**为什么 keep 24 条而不是更多或更少？**
+**为什么 keep 用 `fraction: 0.25` 而非固定消息数？**
 
-- 24 条 ≈ 6-10 轮工具调用对话，足以覆盖当前子任务的完整上下文
-- 太少了（<12）：摘要后的上下文不够精细，模型容易漏掉细节
-- 太多了（>36）：压缩效果不明显，token 仍然较多
+- `keep: { messages: 24 }` 在 1M 对话中 24 条可能不到 50K tokens，保留太少
+- 在 32K 对话中 24 条可能已经满了，保留太多
+- `keep: { fraction: 0.25 }` 在不同模型上自动缩放：1M → 250K 保留，128K → 32K 保留，32K → 8K 保留
+- 内部使用二分查找在消息列表中精确定位 token 数量的 cutoff 点
 
 **为什么用双触发器而不是单阈值？**
 
-单阈值 `fraction > 0.15` 的问题：
+单阈值 `fraction > 0.8` 的问题：
 
 - 如果用户发长段代码粘贴，占比瞬间飙升但消息数很少 → 此时触发摘要反而干扰当前任务
-- 双触发器通过 AND 关系避免这种误触发：消息数也成为必要条件
+- 触发 B（0.9 + 3msgs）应对这种场景：即使消息数少，超高的 token 占比也需要处理
+- 双触发器通过 AND 关系避免过早触发，同时覆盖边缘场景
 
 **为什么用主模型做摘要而不是用更便宜的模型？**
 
@@ -150,9 +173,9 @@ LLM API 的前缀缓存机制：如果请求的前缀与之前相同，API 会�
 ## 5. Layer 3: UI 指示器
 
 ```
-Context: 4.2Kt · 14 msgs · ██████░░░░ 60%
-         ↑              ↑            ↑
-      token 数      消息数量      使用率进度条
+Context: 22.4Kt · 14 msgs · ███████░░░ 70%
+          ↑              ↑            ↑
+       token 数      消息数量      使用率进度条
 ```
 
 **颜色语义**：
@@ -164,36 +187,43 @@ Context: 4.2Kt · 14 msgs · ██████░░░░ 60%
 | 60-85% | yellow | 较高，摘要即将或已触发 |
 | > 85%  | red    | 临界，需关注           |
 
-**实现位置**：ChatView 底部，流式输出结束后显示。
+**实现位置**：ChatView 底部，流式输出结束后显示。使用率 = estimatedTokens / contextWindow，其中 contextWindow 来自 `LLM_CONTEXT_WINDOW` 环境变量（兜底 128K）。
 
-## 6. Token 计数工具
+## 6. Token 计数与上下文窗口
 
 文件：[src/utils/token-counter.ts](src/utils/token-counter.ts)
 
 ```typescript
-import { countTokensApproximately } from 'langchain';
+// 获取上下文窗口大小
+// 优先级：LLM_CONTEXT_WINDOW 环境变量 > 兜底 128K
+export function getContextWindow(): number;
 
-// 使用 LangChain 内置的近似算法 (字符数 / 4)
+// 使用 js-tiktoken (cl100k_base) 精确计数
 export function estimateTokens(messages: BaseMessage[]): number;
 
-// 估算使用率 (0-1)
+// 估算使用率 (0-1)，内部调用 getContextWindow()
 export function estimateContextUsage(messages: BaseMessage[]): number;
-
-// 是否超过安全阈值
-export function isContextOverloaded(messages: BaseMessage[]): boolean;
 
 // 格式化显示
 export function formatTokens(tokens: number): string;
 
-// 完整摘要
+// 完整摘要，内部调用 getContextWindow()
 export function getContextSummary(messages: BaseMessage[]): ContextSummary;
 ```
 
-使用 `/4` 近似而不是 `tiktoken` 精确计算的原因：
+**为什么用环境变量而非模型名查表？**
 
-- 不需要额外的 tokenizer 依赖
-- 对中文友好（`字符/4` ≈ `字符*0.25`，中文约 1.5-2 token/字，英文约 0.25-0.3 token/字）
-- 摘要中间件只在判断触发条件时需要精度，`/4` 足够
+最初设计了一个 30+ 模型的查表，但很快发现两个问题：
+1. 模型上下文窗口信息经常变化（如 `deepseek-v4-flash` 实为 1M 而非表里的 128K）
+2. 非 OpenAI/Anthropic 模型无法从 langchain 内置函数获取准确值
+
+改为 `LLM_CONTEXT_WINDOW` 环境变量显式配置，换模型时同步改一行 `.env` 即可。不配置则兜底 128K。
+
+使用 `js-tiktoken`（cl100k_base BPE 编码）精确计数，对中英文混合场景精度远优于字符数/4 近似。
+
+- 不需要 native 绑定，纯 JS 实现
+- encoder 懒加载单例，避免重复初始化
+- 每条消息额外计 4 tokens（role/separator overhead）
 
 ## 7. 边界情况
 
@@ -202,18 +232,20 @@ export function getContextSummary(messages: BaseMessage[]): ContextSummary;
 | 摘要触发时正在 HITL 中断             | 不影响，摘要只压缩已完成的消息，中断中状态独立 |
 | 摘要后 TodoList 状态                 | 不丢失，todos 在 state 中独立于 messages       |
 | 流式输出中触发                       | 不可能，摘要在 model call 前检查               |
-| 首轮对话就超限（超长 system prompt） | 不会触发，摘要需要 messages > 6/8              |
+| 首轮对话就超限（超长 system prompt） | 不会触发，摘要需要 messages > 4                |
 | 摘要模型调用失败                     | middleware 内置降级，失败时跳过摘要继续执行    |
+| 非 OpenAI 模型的 profile 查不到      | `Object.defineProperty` 注入 `maxInputTokens`  |
 
 ## 8. 关键文件
 
 | 文件                               | 职责                                              |
 | ---------------------------------- | ------------------------------------------------- |
-| `src/agents/coding-agent.ts`       | 启用 `summarizationMiddleware`，配置 trigger/keep |
-| `src/utils/token-counter.ts`       | token 估算、使用率计算、格式化                    |
+| `src/agents/coding-agent.ts`       | 启用 `summarizationMiddleware`，profile 注入，配置 trigger/keep |
+| `src/utils/token-counter.ts`       | `getContextWindow()`、token 估算、使用率计算      |
+| `.env`                             | `LLM_CONTEXT_WINDOW` 显式配置模型上下文窗口        |
 | `src/cli/app.tsx`                  | 每轮末尾计算 `contextSummary` 并传递给 UI         |
 | `src/cli/components/chat-view.tsx` | 底部渲染上下文用量指示器                          |
 
 ---
 
-_最后更新：2026-05-31_
+_最后更新：2026-06-02_

@@ -48,17 +48,19 @@ LangGraph 默认 `streamMode: 'updates'` 是节点级批量——LLM 完整生�
 
 ### 方案
 
-`marked.lexer()` 做纯词法分析（不生成 HTML），然后把 token 树映射到 Ink 组件。
+`marked-terminal`（marked 官方终端渲染器）把 Markdown 转成 ANSI 终端字符串，Ink `<Text>` 直接透传 ANSI 码到终端。
 
 ### 关键设计
 
-**`marked.lexer()` 做纯词法分析**（不生成 HTML），然后把 token 树直接映射到 Ink 组件——`**粗体**` → `<Text bold>`、`` `代码` `` → `<Text color="cyan">`。
+**为什么从手写渲染器切换到 marked-terminal？**第一版用 `marked.lexer()` 做词法分析，手动把 10 种 token 类型映射到 Ink `<Text>/<Box>` 组件，写了 285 行。但每次 marked 新增语法都需要手动维护，且自己实现的表格渲染（纯文本对齐）远不如 `marked-terminal` 的 ASCII 框线表格。
 
-**样式叠加**：`***bold-italic***`（strong 套 em）通过 `{...seg, bold: true, dim: true}` 自动合并，终端用 dimColor 模拟斜体（终端鲜少支持真斜体）。
+**切换的顾虑和验证**：担心 `marked-terminal` 输出的 ANSI 裸字符串和 Ink 自己管理的 ANSI 布局冲突。实际测试后发现 Ink `<Text>` 可以安全透传 ANSI 码 —— 终端对这两层 ANSI 各管各的，定位控制归 Ink，样式控制归 marked-terminal，互不干扰。
+
+**代码精简**：285 行 → 30 行。`marked.parse(content, { renderer: new TerminalRenderer() })` 一行搞定所有语法。
 
 ### 亮点
 
-10 种 Markdown 语法 → Ink 样式映射表（含代码块圆角边框、表格自动列宽、引用块竖线）。流式时也能实时渲染——`marked.lexer()` 对不完整语法容忍度高（未闭合的 `**` 当字面量，下一 token 闭合后立刻切粗体）。
+ASCII 框线表格、标题彩色加粗、代码块语法高亮、引用块缩进 —— 全是 marked-terminal 内置的。30 行代码，markdown 覆盖度反而比手写更高（手写版没做嵌套列表等边界情况）。
 
 > 详见 [markdown-rendering.md](markdown-rendering.md)
 
@@ -76,15 +78,19 @@ Agent 对话历史无限增长，最终超过 LLM context window 导致 API 400�
 
 ### 关键设计
 
-**`summarizationMiddleware`（LangChain 内置）**：用 `fraction`（上下文窗口占比）而非硬编码 token 数。`fraction: 0.15` 在 128K 模型上约 19K 触发，在 32K 模型上约 4.8K 触发，自适应不同模型。双触发器 AND 逻辑——`(fraction > 0.15 AND messages > 10) OR (fraction > 0.25 AND messages > 6)`，多轮对话和单条长消息分别覆盖。`keep: 24` 条原文保证当前任务连贯。
+**`summarizationMiddleware`（LangChain 内置）**：用 `fraction`（上下文窗口占比）而非硬编码 token 数。但有两个发现：
 
-**前缀缓存布局**：`[System Prompt + Tools]` → `[Summary]` → `[Recent 24 msgs]`。静态放前（始终命中缓存），动态放后（缓存失效范围最小）。摘要换其他模型也可用主模型（复用 API key，触发频率极低，成本可忽略）。
+1. **langchain 内置的 `getModelContextSize` 只覆盖 OpenAI/Anthropic 模型**，对 DeepSeek 返回兜底值 4097，导致 `fraction: 0.15` 实际触发在 4097×0.15=614 tokens——完全错误。解决方案：用 `Object.defineProperty` 重写模型实例的 `profile` getter，注入正确的 `maxInputTokens`（来自 `LLM_CONTEXT_WINDOW` 环境变量，兜底 128K）。
 
-**`modelCallLimitMiddleware`**：`runLimit: 25` 防止 tool call 死循环导致 GraphRecursionError。25 次调用覆盖规划 5 次 + 操作 15 次 + 验证 5 次，超过即抛异常中止。
+2. **阈值参考业界标准重新设计**：Claude Code 在 ~80% 窗口触发，OpenAI Codex 在 ~95% 触发。采用双触发器：`(fraction > 0.8 AND messages > 6) OR (fraction > 0.9 AND messages > 3)`。keep 也用 `fraction: 0.25` 保留最近 25% 窗口的原文，自适应不同模型。
+
+**前缀缓存布局**：`[System Prompt + Tools]` → `[Summary]` → `[Recent messages]`。静态放前（始终命中缓存），动态放后（缓存失效范围最小）。
+
+**`modelCallLimitMiddleware`**：`runLimit: 25` 防止 tool call 死循环导致 GraphRecursionError。
 
 ### 亮点
 
-配置即意图——`fraction` 一次配置适配所有模型，不需要查文档改阈值。UI 底部实时显示 `Context: 4.2Kt · 14 msgs · ██████░░░░ 60%`，颜色分级提示。
+`fraction` 自适应 + profile 注入解决非 OpenAI 模型的上下文检测 bug。UI 底部实时显示 `Context: 4.2Kt · 14 msgs · ██████░░░░ 60%`，颜色分级提示，上下文窗口通过 `LLM_CONTEXT_WINDOW` env var 显式配置。
 
 > 详见 [context-management.md](context-management.md)
 
@@ -205,8 +211,8 @@ langchain v1.4.2 HITL 中间件在混合工具调用场景有已知 bug：当 AI
 | 模块       | 一句话                                                        |
 | ---------- | ------------------------------------------------------------- |
 | 流式输出   | `streamMode: 'messages'` + 草稿累积 + 片段合并 |
-| Markdown   | `marked.lexer` → 直接映射 Ink Text 组件，10 种语法终端样式    |
-| 上下文管理 | `fraction` 自适应摘要 + 前缀缓存布局 + 步数上限保护           |
+| Markdown   | `marked-terminal` 转 ANSI 字符串，Ink 透传，30 行覆盖全语法     |
+| 上下文管理 | `fraction` 自适应 + profile 注入修复非 OpenAI 模型 + UI 指示器  |
 | TodoList   | 全量替换 + 状态注入 prompt + 双路径同步                       |
 | 工具系统   | 5 内置 + MCP，ripgrep 搜索 + 有状态终端 + 严格编辑            |
 | 围栏与HITL | 60+ 规则引擎 + 四级审批 + 白名单 + Ink 终端审批 UI             |
@@ -222,11 +228,11 @@ A: 流结束 → commitDraft → getState 检查 interrupt → assessRisk 分级
 **Q: 危险规则引擎怎么设计的？**
 A: 60+ 条结构化正则规则 × 6 大分类，每条 0-100 风险评分，取最高分 + 白名单优先。详见第 7 节「围栏与人机交互」。
 
-**Q: Markdown 渲染为什么不用现成的库，要自己写？**
-A: 三个现成方案都不兼容 Ink 的 React 终端模型——`marked-terminal` 输出 ANSI 裸字符串，Ink 自己管 ANSI 布局会乱；`react-markdown` 渲染到 HTML DOM，终端没有 DOM；`ink-markdown` 这个库不存在。所以不是重新造轮子，是写了一个约 150 行的胶水层：marked 负责词法分析（占了 90% 的工作），我们只做 token → Ink 组件的映射。Claude Code 没有这层问题因为它不用 Ink，直接操作终端输出。
+**Q: Markdown 渲染为什么从手写切换到 marked-terminal？**
+A: 第一版手写了 285 行 token → Ink 组件映射。后来发现 `marked-terminal` 和 Ink 其实可以共存——Ink 管终端布局的 ANSI 码（光标定位），marked-terminal 管文本样式的 ANSI 码（颜色/粗体），互不冲突。迁移后 285 行变 30 行，还免费获得了 ASCII 框线表格、语法高亮等手写版没覆盖的能力。唯一要注意的是 `marked-terminal@7.x` 的 peer dep 只声明支持 `marked@<16`，但实测兼容 `marked@18`。
 
-**Q: 上下文管理为什么选 fraction 而不是固定 token？**
-A: 固定 4000 token 在 128K 模型上只占 3% 就触发，太频繁；在 8K 模型上占 50% 触发，太晚。fraction 随模型自适应。
+**Q: 上下文管理的 fraction 遇到什么问题？**
+A: langchain 内置的 `getModelContextSize` 只认识 OpenAI/Anthropic 模型，对 DeepSeek 返回兜底值 4097。`fraction: 0.8` 在 128K 模型上本应 102K 触发，实际变成 3277 tokens 就触发。解决方案：用 `Object.defineProperty` 给模型实例注入正确的 `profile.maxInputTokens`，值来自 `LLM_CONTEXT_WINDOW` 环境变量（兜底 128K）。fraction 优势保留——换 200K 的 Claude 模型时 0.8 自动变成 160K 触发。
 
 **Q: 怎么防止模型死循环？**
 A: 双重保护——`modelCallLimitMiddleware`（单次 25 次 LLM 调用上限）+ `recursionLimit: 50`（LangGraph 节点执行上限）。
@@ -236,4 +242,4 @@ A: 当前 `MemorySaver` 在内存中，进程重启丢失。下一步计划换 `
 
 ---
 
-_最后更新：2026-05-31_
+_最后更新：2026-06-02_

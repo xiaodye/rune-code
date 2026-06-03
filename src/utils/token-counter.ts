@@ -1,18 +1,53 @@
-import { countTokensApproximately } from 'langchain';
+import { getEncoding, type Tiktoken } from 'js-tiktoken';
 import type { BaseMessage } from '@langchain/core/messages';
-
-/** 模型上下文窗口大小（可配置） */
-const DEFAULT_CONTEXT_WINDOW = 8192;
 
 /** 安全使用率阈值，超过此比例触发保护 */
 const SAFE_USAGE_RATIO = 0.7;
 
+/** 未配置 LLM_CONTEXT_WINDOW 时的兜底上下文窗口大小 */
+const DEFAULT_CONTEXT_WINDOW = 128_000;
+
+let encoder: Tiktoken | null = null;
+
+function getEncoder(): Tiktoken {
+    if (!encoder) {
+        encoder = getEncoding('cl100k_base');
+    }
+    return encoder;
+}
+
+/**
+ * 获取当前模型的上下文窗口大小。
+ * 优先级：LLM_CONTEXT_WINDOW 环境变量 > 兜底 128K
+ *
+ * 模型上下文窗口各不相同且经常变化（如 deepseek-v4-flash = 1M），
+ * 查表维护成本高且容易出错，直接走显式配置。换模型时同步改 .env 即可。
+ */
+export function getContextWindow(): number {
+    const envValue = process.env.LLM_CONTEXT_WINDOW;
+    if (envValue) {
+        const parsed = Number(envValue);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+            return parsed;
+        }
+    }
+    return DEFAULT_CONTEXT_WINDOW;
+}
+
 /**
  * 估算消息列表的 token 数
- * 使用 LangChain 内置的近似算法（字符数 / 4）
  */
 export function estimateTokens(messages: BaseMessage[]): number {
-    return countTokensApproximately(messages);
+    const enc = getEncoder();
+    let total = 0;
+    for (const msg of messages) {
+        const content = typeof msg.content === 'string'
+            ? msg.content
+            : JSON.stringify(msg.content);
+        total += enc.encode(content).length;
+        total += 4; // message overhead (role, separators)
+    }
+    return total;
 }
 
 /**
@@ -21,10 +56,11 @@ export function estimateTokens(messages: BaseMessage[]): number {
  */
 export function estimateContextUsage(
     messages: BaseMessage[],
-    contextWindow: number = DEFAULT_CONTEXT_WINDOW,
+    contextWindow?: number,
 ): number {
+    const window = contextWindow ?? getContextWindow();
     const tokens = estimateTokens(messages);
-    return Math.min(tokens / contextWindow, 1);
+    return Math.min(tokens / window, 1);
 }
 
 /**
@@ -32,7 +68,7 @@ export function estimateContextUsage(
  */
 export function isContextOverloaded(
     messages: BaseMessage[],
-    contextWindow: number = DEFAULT_CONTEXT_WINDOW,
+    contextWindow?: number,
 ): boolean {
     return estimateContextUsage(messages, contextWindow) > SAFE_USAGE_RATIO;
 }
@@ -52,20 +88,21 @@ export function formatTokens(tokens: number): string {
  */
 export function getContextSummary(
     messages: BaseMessage[],
-    contextWindow: number = DEFAULT_CONTEXT_WINDOW,
+    contextWindow?: number,
 ): {
     tokens: number;
     usage: number;
     messageCount: number;
     label: string;
 } {
+    const window = contextWindow ?? getContextWindow();
     const tokens = estimateTokens(messages);
-    const usage = Math.min(tokens / contextWindow, 1);
+    const usage = Math.min(tokens / window, 1);
 
     let label: string;
-    if (usage < 0.3) label = 'light';
-    else if (usage < 0.6) label = 'moderate';
-    else if (usage < 0.85) label = 'heavy';
+    if (usage < 0.4) label = 'light';
+    else if (usage < 0.8) label = 'moderate';
+    else if (usage < 0.9) label = 'heavy';
     else label = 'critical';
 
     return {
