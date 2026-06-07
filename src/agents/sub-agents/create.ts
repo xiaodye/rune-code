@@ -3,6 +3,12 @@ import { ChatOpenAI } from '@langchain/openai';
 import { getContextWindow } from '@/utils/token-counter';
 import type { SubAgentConfig } from './types';
 
+/**
+ * 创建子 agent 实例。
+ * 复用主 agent 相同的 model 配置（env vars），但无 summarization、无 todoList。
+ * Coder 类型额外注入 HITL middleware，由 spawn-tool 内部自决（非冒泡到 CLI）。
+ * _checkpointer 仅 Coder 需要（支持 interrupt-resume 循环）。
+ */
 export function createSubAgent(config: SubAgentConfig & { _checkpointer?: any }) {
     const model = new ChatOpenAI({
         modelName: process.env.LLM_MODEL,
@@ -16,6 +22,7 @@ export function createSubAgent(config: SubAgentConfig & { _checkpointer?: any })
             : {}),
     });
 
+    // 注入正确的上下文窗口大小，与主 agent 保持一致
     const contextWindow = getContextWindow();
     Object.defineProperty(model, 'profile', {
         get() {
@@ -32,6 +39,7 @@ export function createSubAgent(config: SubAgentConfig & { _checkpointer?: any })
         }),
     ];
 
+    // Coder 需要 HITL middleware 拦截 bash 调用，由 spawn-tool 内部自动决策
     if (config.type === 'coder') {
         middleware.push(
             humanInTheLoopMiddleware({

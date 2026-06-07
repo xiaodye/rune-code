@@ -8,6 +8,7 @@ import { getExplorerConfig, getCoderConfig, getReviewerConfig } from './configs'
 import { assessRisk } from '@/safety/danger-engine';
 import type { SubAgentType, SubAgentConfig } from './types';
 
+// Coder 互斥锁：同一时刻只允许一个 Coder 子 agent 执行，避免并发文件写入冲突
 let coderLock: Promise<void> = Promise.resolve();
 
 function getConfig(type: SubAgentType) {
@@ -21,7 +22,15 @@ function getConfig(type: SubAgentType) {
     }
 }
 
+/**
+ * Coder 专属执行流程：支持 HITL interrupt-resume 循环。
+ * Coder 的 bash 调用会被 HITL 中间件拦截，此函数根据 danger-engine 风险评估自动决策：
+ *   - safe/warning → approve（自动放行）
+ *   - dangerous/critical → reject（告知子 agent 换方式）
+ * 不冒泡到主 CLI 审批 UI，子 agent 内部消化。
+ */
 async function runCoderAgent(config: SubAgentConfig, prompt: string): Promise<string> {
+    // Coder 需要 checkpointer 来支持 interrupt → getState → resume 循环
     const checkpointer = new MemorySaver();
     const coderAgent = createSubAgent({ ...config, _checkpointer: checkpointer });
 
@@ -42,6 +51,7 @@ async function runCoderAgent(config: SubAgentConfig, prompt: string): Promise<st
         const state: StateSnapshot = await coderAgent.getState(configurable);
         const tasks = state.tasks;
 
+        // 无中断，正常完成 — 从后往前找最后一条 AI 回复作为结果摘要
         if (!tasks || tasks.length === 0 || !tasks[0].interrupts || tasks[0].interrupts.length === 0) {
             const messages = result.messages;
             for (let j = messages.length - 1; j >= 0; j--) {
@@ -53,6 +63,7 @@ async function runCoderAgent(config: SubAgentConfig, prompt: string): Promise<st
             return '子 agent 未返回有效结果。';
         }
 
+        // 有中断：评估 bash 命令风险并自动决策 approve/reject
         const interruptValue = tasks[0].interrupts[0].value as any;
         const actionRequests = Array.isArray(interruptValue?.actionRequests)
             ? interruptValue.actionRequests
@@ -85,6 +96,7 @@ export const spawnAgentTool = tool(
 
         try {
             if (type === 'coder') {
+                // Coder 走互斥锁 + HITL 自决流程（同时只能有一个 Coder 执行）
                 let result: string;
                 const prevLock = coderLock;
                 let releaseLock: () => void;
@@ -98,6 +110,7 @@ export const spawnAgentTool = tool(
                 return result;
             }
 
+            // Explorer/Reviewer 走简单 invoke 流程（无 checkpointer，用完即弃）
             const agent = createSubAgent(config);
             const agentResult = await agent.invoke({
                 messages: [new HumanMessage(prompt)],

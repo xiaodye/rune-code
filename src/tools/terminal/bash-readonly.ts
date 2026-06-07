@@ -2,6 +2,10 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { getTerminal } from './bash';
 
+/**
+ * Reviewer 子 agent 专用的受限 bash。
+ * 通过正则白名单只允许只读/验证类命令，拒绝一切写操作。
+ */
 const ALLOWED_COMMANDS: RegExp[] = [
     /^\s*git\s+(diff|log|show|status|branch|rev-parse)/,
     /^\s*npm\s+(test|run\s+test|run\s+lint|run\s+typecheck)/,

@@ -72,6 +72,7 @@ function toolLabel(name: string): string {
         tree: '查看文件树',
         text_editor: '编辑器',
         todo_write: 'TodoList',
+        spawn_agent: '子 Agent',
     };
 
     return labels[name] ?? '调用工具';
@@ -85,6 +86,7 @@ function toolIcon(name: string): string {
         tree: '#',
         text_editor: '+',
         todo_write: '*',
+        spawn_agent: '⏳',
     };
 
     return icons[name] ?? '>';
@@ -126,6 +128,16 @@ function toolDetail(name: string, args: Record<string, any>): string {
             [args.command, displayPath(args.path)].filter(Boolean).join(' '),
             MAX_TOOL_DETAIL_LENGTH,
         );
+    }
+
+    if (name === 'spawn_agent') {
+        const typeLabels: Record<string, string> = {
+            explorer: '探索代码',
+            coder: '编写代码',
+            reviewer: '审查变更',
+        };
+        const label = typeLabels[args.type] ?? args.type;
+        return compact(`[${label}] ${args.task ?? ''}`, MAX_TOOL_DETAIL_LENGTH);
     }
 
     return '';
