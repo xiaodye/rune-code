@@ -1,39 +1,115 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { HumanMessage } from '@langchain/core/messages';
+import { Command, type StateSnapshot } from '@langchain/langgraph';
+import { MemorySaver } from '@langchain/langgraph';
 import { createSubAgent } from './create';
-import { getExplorerConfig } from './configs';
-import type { SubAgentType } from './types';
+import { getExplorerConfig, getCoderConfig } from './configs';
+import { assessRisk } from '@/safety/danger-engine';
+import type { SubAgentType, SubAgentConfig } from './types';
+
+let coderLock: Promise<void> = Promise.resolve();
 
 function getConfig(type: SubAgentType) {
     switch (type) {
         case 'explorer':
             return getExplorerConfig();
+        case 'coder':
+            return getCoderConfig();
         default:
             throw new Error(`Sub-agent type "${type}" is not yet implemented`);
     }
 }
 
+async function runCoderAgent(config: SubAgentConfig, prompt: string): Promise<string> {
+    const checkpointer = new MemorySaver();
+    const coderAgent = createSubAgent({ ...config, _checkpointer: checkpointer });
+
+    const threadId = `coder-${Date.now()}`;
+    const configurable = { configurable: { thread_id: threadId } };
+
+    let input: { messages: any[] } | Command = {
+        messages: [new HumanMessage(prompt)],
+    };
+
+    const MAX_INTERRUPTS = 10;
+    for (let i = 0; i < MAX_INTERRUPTS; i++) {
+        const result = await coderAgent.invoke(input, {
+            ...configurable,
+            recursionLimit: 50,
+        });
+
+        const state: StateSnapshot = await coderAgent.getState(configurable);
+        const tasks = state.tasks;
+
+        if (!tasks || tasks.length === 0 || !tasks[0].interrupts || tasks[0].interrupts.length === 0) {
+            const messages = result.messages;
+            for (let j = messages.length - 1; j >= 0; j--) {
+                const msg = messages[j];
+                if (msg._getType() === 'ai' && typeof msg.content === 'string' && msg.content) {
+                    return msg.content;
+                }
+            }
+            return '子 agent 未返回有效结果。';
+        }
+
+        const interruptValue = tasks[0].interrupts[0].value as any;
+        const actionRequests = Array.isArray(interruptValue?.actionRequests)
+            ? interruptValue.actionRequests
+            : [];
+
+        const decisions = actionRequests.map((action: any) => {
+            if (action.name === 'bash' && action.args?.command) {
+                const assessment = assessRisk(action.args.command);
+                if (assessment.level === 'dangerous' || assessment.level === 'critical') {
+                    return { type: 'reject' };
+                }
+            }
+            return { type: 'approve' };
+        });
+
+        if (decisions.length === 0) {
+            decisions.push({ type: 'approve' });
+        }
+
+        input = new Command({ resume: decisions });
+    }
+
+    return '子 agent 达到最大中断处理次数，执行终止。';
+}
+
 export const spawnAgentTool = tool(
     async ({ type, task, context }) => {
         const config = getConfig(type as SubAgentType);
-        const agent = createSubAgent(config);
-
         const prompt = context ? `背景信息：\n${context}\n\n任务：${task}` : `任务：${task}`;
 
         try {
-            const result = await agent.invoke({
+            if (type === 'coder') {
+                let result: string;
+                const prevLock = coderLock;
+                let releaseLock: () => void;
+                coderLock = new Promise((resolve) => { releaseLock = resolve; });
+                await prevLock;
+                try {
+                    result = await runCoderAgent(config, prompt);
+                } finally {
+                    releaseLock!();
+                }
+                return result;
+            }
+
+            const agent = createSubAgent(config);
+            const agentResult = await agent.invoke({
                 messages: [new HumanMessage(prompt)],
             });
 
-            const messages = result.messages;
+            const messages = agentResult.messages;
             for (let i = messages.length - 1; i >= 0; i--) {
                 const msg = messages[i];
                 if (msg._getType() === 'ai' && typeof msg.content === 'string' && msg.content) {
                     return msg.content;
                 }
             }
-
             return '子 agent 未返回有效结果。';
         } catch (error: any) {
             return `子 agent 执行失败: ${error.message}`;
