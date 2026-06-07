@@ -112,6 +112,12 @@ export const spawnAgentTool = tool(
             }
             return '子 agent 未返回有效结果。';
         } catch (error: any) {
+            if (error.message?.includes('runLimit')) {
+                return `子 agent 达到工具调用上限（${config.modelCallLimit} 次），任务可能过于复杂。请尝试拆分为更小的子任务。`;
+            }
+            if (error.message?.includes('recursion')) {
+                return `子 agent 执行深度超限，任务可能陷入循环。请检查任务描述是否明确。`;
+            }
             return `子 agent 执行失败: ${error.message}`;
         }
     },
