@@ -173,10 +173,7 @@ export const App = () => {
 
             // ─── HITL 中断处理 + 分级风险评估 ───
             const state: StateSnapshot = await agent.getState({ configurable: { thread_id: '1' } });
-            const stateValues = state.values as Record<string, unknown>;
-            const tasks = stateValues.tasks as
-                | Array<{ interrupts?: Array<{ value: unknown }> }>
-                | undefined;
+            const tasks = state.tasks;
             if (
                 tasks &&
                 tasks.length > 0 &&
@@ -226,7 +223,7 @@ export const App = () => {
                         assessment,
                         actionRequests,
                     });
-                    await new Promise((r) => setTimeout(r, 1200));
+                    await new Promise((r) => setTimeout(r, 3000));
                     setInterruptInfo(null);
                     await autoResume(decisionCount);
                 } else {
@@ -243,7 +240,7 @@ export const App = () => {
                     });
 
                     if (assessment.level === 'critical') {
-                        setCriticalCooldown(3);
+                        setCriticalCooldown(5);
                     }
                 }
             }
