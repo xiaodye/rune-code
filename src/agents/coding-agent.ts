@@ -12,6 +12,7 @@ import { MemorySaver } from '@langchain/langgraph';
 import { loadMcpTools } from '@/mcp';
 import { todoListMiddleware } from '@/middlewares/todo-list';
 import { getContextWindow } from '@/utils/token-counter';
+import { spawnAgentTool } from './sub-agents/spawn-tool';
 
 export async function createCodingAgent() {
     const maxTokens = process.env.LLM_MAX_TOKENS ? Number(process.env.LLM_MAX_TOKENS) : undefined;
@@ -42,7 +43,7 @@ export async function createCodingAgent() {
 
     const mcpTools = await loadMcpTools();
 
-    const tools = [bashTool, grepTool, lsTool, textEditorTool, treeTool, ...mcpTools];
+    const tools = [bashTool, grepTool, lsTool, textEditorTool, treeTool, spawnAgentTool, ...mcpTools];
 
     const systemPrompt = applyPromptTemplate('coding_agent', {
         PROJECT_ROOT: project.rootDir,
