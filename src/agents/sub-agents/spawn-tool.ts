@@ -4,7 +4,7 @@ import { HumanMessage } from '@langchain/core/messages';
 import { Command, type StateSnapshot } from '@langchain/langgraph';
 import { MemorySaver } from '@langchain/langgraph';
 import { createSubAgent } from './create';
-import { getExplorerConfig, getCoderConfig } from './configs';
+import { getExplorerConfig, getCoderConfig, getReviewerConfig } from './configs';
 import { assessRisk } from '@/safety/danger-engine';
 import type { SubAgentType, SubAgentConfig } from './types';
 
@@ -16,8 +16,8 @@ function getConfig(type: SubAgentType) {
             return getExplorerConfig();
         case 'coder':
             return getCoderConfig();
-        default:
-            throw new Error(`Sub-agent type "${type}" is not yet implemented`);
+        case 'reviewer':
+            return getReviewerConfig();
     }
 }
 

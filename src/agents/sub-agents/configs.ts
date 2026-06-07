@@ -1,4 +1,5 @@
 import { grepTool, lsTool, treeTool, textEditorTool, bashTool } from '@/tools';
+import { bashReadonlyTool } from '@/tools/terminal/bash-readonly';
 import type { SubAgentConfig } from './types';
 
 const EXPLORER_PROMPT = `你是代码探索助手，只负责搜索和阅读代码。
@@ -43,5 +44,37 @@ export function getCoderConfig(): SubAgentConfig {
         tools: [bashTool, textEditorTool, grepTool, lsTool, treeTool],
         systemPrompt: CODER_PROMPT,
         modelCallLimit: 25,
+    };
+}
+
+const REVIEWER_PROMPT = `你是代码审查者，负责审查代码变更并验证质量。
+
+**工作流程：**
+1. 用 git diff 查看变更内容
+2. 用 grep/ls 查看相关上下文
+3. 用 bash_readonly 跑测试和类型检查
+4. 输出审查结论
+
+**输出格式：**
+## 结论：PASS 或 FAIL
+
+## 问题列表（如有）
+- [文件:行号] 问题描述
+
+## 测试结果
+- 类型检查：PASS/FAIL
+- 单元测试：PASS/FAIL（如适用）
+
+**规则：**
+- 关注正确性 bug、类型安全、边界情况
+- 不要关注代码风格（留给 linter）
+- 如果测试通过且无明显 bug，给 PASS`;
+
+export function getReviewerConfig(): SubAgentConfig {
+    return {
+        type: 'reviewer',
+        tools: [bashReadonlyTool, grepTool, lsTool, treeTool],
+        systemPrompt: REVIEWER_PROMPT,
+        modelCallLimit: 15,
     };
 }
