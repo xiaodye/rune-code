@@ -29,9 +29,9 @@
 | 风险等级 | 分数范围 | 审批行为 |
 |---------|---------|---------|
 | `safe` | 0-29 | 自动放行，不打扰用户 |
-| `warning` | 30-59 | 短暂提示 1.2 秒后自动执行 |
+| `warning` | 30-59 | 短暂提示 3 秒后自动执行 |
 | `dangerous` | 60-89 | 审批弹窗：显示命令、风险类别、评分，Approve/Reject |
-| `critical` | 90-100 | 审批弹窗 + "此命令可能对系统造成不可逆影响"警告 + 3 秒倒计时后才能 Approve |
+| `critical` | 90-100 | 审批弹窗 + "此命令可能对系统造成不可逆影响"警告 + 5 秒倒计时后才能 Approve |
 
 审批 UI 组件位于 `app.tsx:332-430`，根据风险等级动态显示不同的边框颜色、图标和警告信息。
 
@@ -355,9 +355,9 @@ export function assessRisk(command: string): DangerAssessment {
 | 风险等级 | 分数范围 | 审批行为 |
 |---------|---------|---------|
 | `safe` | 0-29 | 自动执行，不打扰用户 |
-| `warning` | 30-59 | 记录日志，在 UI 底部显示一则提示，1 秒后自动执行 |
+| `warning` | 30-59 | 记录日志，在 UI 底部显示一则提示，3 秒后自动执行 |
 | `dangerous` | 60-89 | 审批弹窗 + 显示影响范围 + [Edit] [Approve] [Reject] |
-| `critical` | 90-100 | 二次确认弹窗 "你真的确定？" + 3 秒倒计时后才能点 Approve |
+| `critical` | 90-100 | 二次确认弹窗 "你真的确定？" + 5 秒倒计时后才能点 Approve |
 
 ### 6.2 审批 UI 设计
 
@@ -392,7 +392,7 @@ export function assessRisk(command: string): DangerAssessment {
 │ 确认请输入 "yes, I understand the risks":    │
 │ > █                                          │
 │                                              │
-│ [Approve] (3s)  [Reject]                     │
+│ [Approve] (5s)  [Reject]                     │
 └──────────────────────────────────────────────┘
 ```
 

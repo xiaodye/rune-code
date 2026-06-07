@@ -175,9 +175,9 @@ Agent 可以执行任意 bash 命令——`rm -rf /`、`curl | bash`、`git push
 | 等级 | 分数 | 行为 | 用户感知 |
 |------|------|------|---------|
 | `safe` | 0-29 | 自动放行 | 无感知 |
-| `warning` | 30-59 | 1.2s 提示后自动执行 | 底部闪现风险提示 |
+| `warning` | 30-59 | 3s 提示后自动执行 | 底部闪现风险提示 |
 | `dangerous` | 60-89 | 审批弹窗 | 看到命令、类别、评分、Approve/Reject |
-| `critical` | 90-100 | 审批弹窗 + 3s 倒计时 | "此命令可能对系统造成不可逆影响"，倒计时结束前 Approve 不可点击 |
+| `critical` | 90-100 | 审批弹窗 + 5s 倒计时 | "此命令可能对系统造成不可逆影响"，倒计时结束前 Approve 不可点击 |
 
 **HITL 中断流**（`app.tsx:174-248`）：
 
@@ -185,7 +185,7 @@ Agent 可以执行任意 bash 命令——`rm -rf /`、`curl | bash`、`git push
 stream 结束 → commitDraft → getState 检查 tasks[0].interrupts
   → 提取 actionRequests → assessRisk(command)
   → safe: autoResume(approve)
-  → warning: setInterruptInfo + 1.2s 后 autoResume
+  → warning: setInterruptInfo + 3s 后 autoResume
   → dangerous/critical: setInterruptInfo → 审批 UI → handleResume
 ```
 
