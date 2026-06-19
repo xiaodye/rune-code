@@ -149,7 +149,7 @@ export const App = () => {
             });
 
             for await (const chunk of stream) {
-                const [msg] = chunk as [BaseMessage, any];
+                const [msg] = chunk;
 
                 if (AIMessageChunk.isInstance(msg)) {
                     // 逐 token 累积流式文本
@@ -180,11 +180,7 @@ export const App = () => {
                 tasks[0].interrupts &&
                 tasks[0].interrupts.length > 0
             ) {
-                const interruptValue = tasks[0].interrupts[0].value as
-                    | {
-                          actionRequests?: ActionRequest[];
-                      }
-                    | undefined;
+                const interruptValue = tasks[0].interrupts[0].value;
                 const actionRequests: ActionRequest[] = Array.isArray(
                     interruptValue?.actionRequests,
                 )
